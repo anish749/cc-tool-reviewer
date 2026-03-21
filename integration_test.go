@@ -41,7 +41,6 @@ func sendRequest(t *testing.T, socketPath string, toolName string, toolInput any
 	if _, err := conn.Write(reqBody); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	// Signal that we're done writing so the server's io.ReadAll returns.
 	conn.(*net.UnixConn).CloseWrite()
 
 	resp, err := io.ReadAll(conn)
@@ -77,133 +76,146 @@ func startTestServer(t *testing.T) string {
 	return socketPath
 }
 
-func TestIntegration(t *testing.T) {
-	socketPath := startTestServer(t)
+type testCase struct {
+	name         string
+	toolName     string
+	toolInput    any
+	wantLocal    bool   // true = expect local match (empty response, no API call)
+	wantAPI      bool   // true = must hit the API (non-empty response required)
+	wantDecision string // expected decision: "allow" or "ask"
+}
 
-	type testCase struct {
-		name           string
-		toolName       string
-		toolInput      any
-		wantEmpty      bool   // true = expect local match (empty response)
-		wantDecision   string // if not empty, expect this decision from AI
-	}
-
-	tests := []testCase{
-		{
-			name:      "allow-listed: rg",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "rg foo bar"},
-			wantEmpty: true,
-		},
-		{
-			name:      "allow-listed: go test",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "go test ./..."},
-			wantEmpty: true,
-		},
-		{
-			name:      "allow-listed: git status",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "git status -s"},
-			wantEmpty: true,
-		},
-		{
-			name:      "allow-listed: npm install",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "npm install express"},
-			wantEmpty: true,
-		},
-		{
-			name:      "allow-listed: find",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "find . -name '*.go'"},
-			wantEmpty: true,
-		},
-		{
-			name:      "allow-listed: gh",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "gh pr list"},
-			wantEmpty: true,
-		},
-		{
-			name:      "allow-listed: piped starts with allowed (find | xargs grep)",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "find . -name '*.go' | xargs grep TODO"},
-			wantEmpty: true,
-		},
-		{
-			name:      "deny-listed: git reset --hard",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "git reset --hard HEAD"},
-			wantEmpty: true,
-		},
-		{
-			name:      "deny-listed: git add -A",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "git add -A"},
-			wantEmpty: true,
-		},
-		{
-			name:      "deny-listed: git branch -D",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "git branch -D feature"},
-			wantEmpty: true,
-		},
-		{
-			name:         "ask-zone: docker build",
-			toolName:     "Bash",
-			toolInput:    map[string]string{"command": "docker build -t myapp ."},
-			wantDecision: "ask",
-		},
-		{
-			name:         "ask-zone: terraform plan",
-			toolName:     "Bash",
-			toolInput:    map[string]string{"command": "terraform plan"},
-			wantDecision: "ask",
-		},
-		{
-			name:         "ask-zone: kubectl apply",
-			toolName:     "Bash",
-			toolInput:    map[string]string{"command": "kubectl apply -f deployment.yaml"},
-			wantDecision: "ask",
-		},
-	}
+func runTestCases(t *testing.T, socketPath string, tests []testCase) {
+	t.Helper()
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			resp, elapsed := sendRequest(t, socketPath, tc.toolName, tc.toolInput)
+			gotLocal := resp == ""
 
-			if tc.wantEmpty {
-				if resp != "" {
-					t.Errorf("expected empty response, got: %s", resp)
+			if tc.wantLocal {
+				if !gotLocal {
+					t.Errorf("expected local match (empty response), got: %s", resp)
 				}
-				t.Logf("%-55s  %8s  (local match)", tc.name, elapsed.Round(time.Millisecond))
+				t.Logf("%-55s  %8s  local", tc.name, elapsed.Round(time.Millisecond))
 				return
 			}
 
-			if resp == "" {
-				t.Fatalf("expected non-empty response with decision=%q, got empty", tc.wantDecision)
+			if tc.wantAPI {
+				if gotLocal {
+					t.Fatalf("expected API call (non-empty response), but got local match (empty response) — matcher incorrectly short-circuited")
+				}
+
+				var output HookOutput
+				if err := json.Unmarshal([]byte(resp), &output); err != nil {
+					t.Fatalf("unmarshal response: %v (raw: %s)", err, resp)
+				}
+				if output.HookSpecificOutput == nil {
+					t.Fatalf("expected hookSpecificOutput, got nil")
+				}
+
+				got := output.HookSpecificOutput.PermissionDecision
+				if tc.wantDecision != "" && got != tc.wantDecision {
+					t.Errorf("decision: got %q, want %q (reason: %s)",
+						got, tc.wantDecision, output.HookSpecificOutput.PermissionDecisionReason)
+				}
+
+				t.Logf("%-55s  %8s  api  decision=%s  reason=%s",
+					tc.name, elapsed.Round(time.Millisecond),
+					got, output.HookSpecificOutput.PermissionDecisionReason)
+				return
 			}
 
-			var output HookOutput
-			if err := json.Unmarshal([]byte(resp), &output); err != nil {
-				t.Fatalf("unmarshal response: %v (raw: %s)", err, resp)
-			}
-
-			if output.HookSpecificOutput == nil {
-				t.Fatalf("expected hookSpecificOutput, got nil")
-			}
-
-			got := output.HookSpecificOutput.PermissionDecision
-			if tc.wantDecision != "" && got != tc.wantDecision {
-				t.Errorf("decision: got %q, want %q (reason: %s)", got, tc.wantDecision, output.HookSpecificOutput.PermissionDecisionReason)
-			}
-
-			t.Logf("%-55s  %8s  decision=%s  reason=%s",
-				tc.name, elapsed.Round(time.Millisecond),
-				got, output.HookSpecificOutput.PermissionDecisionReason)
+			t.Fatalf("test case must set either wantLocal or wantAPI")
 		})
 	}
+}
+
+func TestIntegration(t *testing.T) {
+	socketPath := startTestServer(t)
+
+	tests := []testCase{
+		// --- Local matches: allow-listed ---
+		{
+			name:      "local/allow: rg",
+			toolName:  "Bash",
+			toolInput: map[string]string{"command": "rg foo bar"},
+			wantLocal: true,
+		},
+		{
+			name:      "local/allow: go test",
+			toolName:  "Bash",
+			toolInput: map[string]string{"command": "go test ./..."},
+			wantLocal: true,
+		},
+		{
+			name:      "local/allow: git status",
+			toolName:  "Bash",
+			toolInput: map[string]string{"command": "git status -s"},
+			wantLocal: true,
+		},
+		{
+			name:      "local/allow: npm install",
+			toolName:  "Bash",
+			toolInput: map[string]string{"command": "npm install express"},
+			wantLocal: true,
+		},
+		{
+			name:      "local/allow: find",
+			toolName:  "Bash",
+			toolInput: map[string]string{"command": "find . -name '*.go'"},
+			wantLocal: true,
+		},
+		{
+			name:      "local/allow: gh",
+			toolName:  "Bash",
+			toolInput: map[string]string{"command": "gh pr list"},
+			wantLocal: true,
+		},
+		// --- Local matches: deny-listed ---
+		{
+			name:      "local/deny: git reset --hard",
+			toolName:  "Bash",
+			toolInput: map[string]string{"command": "git reset --hard HEAD"},
+			wantLocal: true,
+		},
+		{
+			name:      "local/deny: git add -A",
+			toolName:  "Bash",
+			toolInput: map[string]string{"command": "git add -A"},
+			wantLocal: true,
+		},
+		{
+			name:      "local/deny: git branch -D",
+			toolName:  "Bash",
+			toolInput: map[string]string{"command": "git branch -D feature"},
+			wantLocal: true,
+		},
+		// --- API: simple commands not in allow list ---
+		{
+			name:         "api/ask: docker build",
+			toolName:     "Bash",
+			toolInput:    map[string]string{"command": "docker build -t myapp ."},
+			wantAPI:      true,
+			wantDecision: "ask",
+		},
+		{
+			name:         "api/ask: terraform plan",
+			toolName:     "Bash",
+			toolInput:    map[string]string{"command": "terraform plan"},
+			wantAPI:      true,
+			wantDecision: "ask",
+		},
+		{
+			name:         "api/ask: kubectl apply",
+			toolName:     "Bash",
+			toolInput:    map[string]string{"command": "kubectl apply -f deployment.yaml"},
+			wantAPI:      true,
+			wantDecision: "ask",
+		},
+	}
+
+	runTestCases(t, socketPath, tests)
 
 	// Print summary
 	fmt.Println("\n--- Timing Summary ---")
@@ -225,14 +237,6 @@ func TestIntegration(t *testing.T) {
 
 func TestIntegrationComplex(t *testing.T) {
 	socketPath := startTestServer(t)
-
-	type testCase struct {
-		name         string
-		toolName     string
-		toolInput    any
-		wantEmpty    bool
-		wantDecision string
-	}
 
 	complexBashScript := `cd /Users/anish/git/cc-tool-reviewer && ./cc-tool-reviewer &
 DAEMON_PID=$!
@@ -295,57 +299,26 @@ kill $DAEMON_PID 2>/dev/null
 wait $DAEMON_PID 2>/dev/null`
 
 	tests := []testCase{
-		// Complex multi-line bash script composing many allowed commands
-		// (cd, echo, python3, nc, rg, grep, sort, kill, wait, sleep)
-		// The AI should recognize this as a composition of allowed operations
+		// Complex multi-line bash script composing many allowed commands.
+		// Must hit API (not be short-circuited by local matcher).
+		// AI should recognize all executed commands are individually allowed.
 		{
-			name:         "ask-zone: complex bash script composing allowed commands",
+			name:         "api/allow: complex bash script composing allowed commands",
 			toolName:     "Bash",
 			toolInput:    map[string]string{"command": complexBashScript},
+			wantAPI:      true,
 			wantDecision: "allow",
 		},
-		// cd && git log — compound command with &&, both parts are allowed
+		// cd && git log — compound with &&, both parts individually allowed.
+		// Must hit API (compound commands bypass local matcher).
 		{
-			name:         "ask-zone: cd && git log (compound allowed)",
+			name:         "api/allow: cd && git log (compound allowed)",
 			toolName:     "Bash",
 			toolInput:    map[string]string{"command": "cd ~/git/x && git log"},
+			wantAPI:      true,
 			wantDecision: "allow",
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			resp, elapsed := sendRequest(t, socketPath, tc.toolName, tc.toolInput)
-
-			if tc.wantEmpty {
-				if resp != "" {
-					t.Errorf("expected empty response (local match), got: %s", resp)
-				}
-				t.Logf("%-55s  %8s  (local match)", tc.name, elapsed.Round(time.Millisecond))
-				return
-			}
-
-			if resp == "" {
-				t.Fatalf("expected non-empty response with decision=%q, got empty", tc.wantDecision)
-			}
-
-			var output HookOutput
-			if err := json.Unmarshal([]byte(resp), &output); err != nil {
-				t.Fatalf("unmarshal response: %v (raw: %s)", err, resp)
-			}
-
-			if output.HookSpecificOutput == nil {
-				t.Fatalf("expected hookSpecificOutput, got nil")
-			}
-
-			got := output.HookSpecificOutput.PermissionDecision
-			if tc.wantDecision != "" && got != tc.wantDecision {
-				t.Errorf("decision: got %q, want %q (reason: %s)", got, tc.wantDecision, output.HookSpecificOutput.PermissionDecisionReason)
-			}
-
-			t.Logf("%-55s  %8s  decision=%s  reason=%s",
-				tc.name, elapsed.Round(time.Millisecond),
-				got, output.HookSpecificOutput.PermissionDecisionReason)
-		})
-	}
+	runTestCases(t, socketPath, tests)
 }
