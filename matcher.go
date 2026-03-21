@@ -119,9 +119,25 @@ func expandTilde(path string) string {
 	return path
 }
 
+// isCompoundCommand checks if a bash command is compound (multi-line, chained,
+// backgrounded, uses subshells, etc.) and shouldn't be matched by simple prefix rules.
+func isCompoundCommand(cmd string) bool {
+	return strings.ContainsAny(cmd, "\n;") ||
+		strings.Contains(cmd, "&&") ||
+		strings.Contains(cmd, "||") ||
+		strings.Contains(cmd, "$(") ||
+		strings.ContainsRune(cmd, '`')
+}
+
 // MatchesAny checks if a tool call matches any rule in the list.
 func MatchesAny(toolName string, toolInput json.RawMessage, rules []Rule) bool {
 	input := ToolInputString(toolName, toolInput)
+
+	// Compound bash commands should not match simple prefix rules — send to AI
+	if toolName == "Bash" && isCompoundCommand(input) {
+		return false
+	}
+
 	for _, r := range rules {
 		if r.Tool != toolName {
 			continue

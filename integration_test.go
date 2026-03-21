@@ -222,3 +222,130 @@ func TestIntegration(t *testing.T) {
 		fmt.Printf("  %-55s  %8s  %-5s  decision=%s\n", tc.name, elapsed.Round(time.Millisecond), kind, decision)
 	}
 }
+
+func TestIntegrationComplex(t *testing.T) {
+	socketPath := startTestServer(t)
+
+	type testCase struct {
+		name         string
+		toolName     string
+		toolInput    any
+		wantEmpty    bool
+		wantDecision string
+	}
+
+	complexBashScript := `cd /Users/anish/git/cc-tool-reviewer && ./cc-tool-reviewer &
+DAEMON_PID=$!
+sleep 0.5
+
+# Test 1: allow-listed (rg)
+echo 'Test 1: allow-listed command (rg foo bar)'
+START=$(python3 -c 'import time; print(time.time())')
+RESULT=$(echo '{"tool_name":"Bash","tool_input":{"command":"rg foo bar"}}' | nc -U /tmp/cc-tool-reviewer.sock)
+END=$(python3 -c 'import time; print(time.time())')
+echo "Result: '${RESULT:-(empty)}'"
+python3 -c "print(f'Time: {($END - $START)*1000:.1f}ms')"
+echo ""
+
+# Test 2: deny-listed (git reset --hard)
+echo 'Test 2: deny-listed command (git reset --hard HEAD)'
+START=$(python3 -c 'import time; print(time.time())')
+RESULT=$(echo '{"tool_name":"Bash","tool_input":{"command":"git reset --hard HEAD"}}' | nc -U /tmp/cc-tool-reviewer.sock)
+END=$(python3 -c 'import time; print(time.time())')
+echo "Result: '${RESULT:-(empty)}'"
+python3 -c "print(f'Time: {($END - $START)*1000:.1f}ms')"
+echo ""
+
+# Test 3: ask-zone, cold connection
+echo 'Test 3: ask-zone (docker build) — cold API connection'
+START=$(python3 -c 'import time; print(time.time())')
+RESULT=$(echo '{"tool_name":"Bash","tool_input":{"command":"docker build -t myapp ."}}' | nc -U /tmp/cc-tool-reviewer.sock)
+END=$(python3 -c 'import time; print(time.time())')
+echo "Result: '$RESULT'"
+python3 -c "print(f'Time: {($END - $START)*1000:.1f}ms')"
+echo ""
+
+# Test 4: ask-zone, warm connection
+echo 'Test 4: ask-zone (terraform apply) — warm API connection'
+START=$(python3 -c 'import time; print(time.time())')
+RESULT=$(echo '{"tool_name":"Bash","tool_input":{"command":"terraform apply -auto-approve"}}' | nc -U /tmp/cc-tool-reviewer.sock)
+END=$(python3 -c 'import time; print(time.time())')
+echo "Result: '$RESULT'"
+python3 -c "print(f'Time: {($END - $START)*1000:.1f}ms')"
+echo ""
+
+# Test 5: piped allowed commands
+echo 'Test 5: piped allowed commands (rg | grep | sort)'
+START=$(python3 -c 'import time; print(time.time())')
+RESULT=$(echo '{"tool_name":"Bash","tool_input":{"command":"rg TODO src/ | grep -v node_modules | sort"}}' | nc -U /tmp/cc-tool-reviewer.sock)
+END=$(python3 -c 'import time; print(time.time())')
+echo "Result: '${RESULT:-(empty)}'"
+python3 -c "print(f'Time: {($END - $START)*1000:.1f}ms')"
+echo ""
+
+# Test 6: Edit tool (ask-zone)
+echo 'Test 6: Edit tool — warm API connection'
+START=$(python3 -c 'import time; print(time.time())')
+RESULT=$(echo '{"tool_name":"Edit","tool_input":{"file_path":"/tmp/test.go","old_string":"foo","new_string":"bar"}}' | nc -U /tmp/cc-tool-reviewer.sock)
+END=$(python3 -c 'import time; print(time.time())')
+echo "Result: '$RESULT'"
+python3 -c "print(f'Time: {($END - $START)*1000:.1f}ms')"
+
+kill $DAEMON_PID 2>/dev/null
+wait $DAEMON_PID 2>/dev/null`
+
+	tests := []testCase{
+		// Complex multi-line bash script composing many allowed commands
+		// (cd, echo, python3, nc, rg, grep, sort, kill, wait, sleep)
+		// The AI should recognize this as a composition of allowed operations
+		{
+			name:         "ask-zone: complex bash script composing allowed commands",
+			toolName:     "Bash",
+			toolInput:    map[string]string{"command": complexBashScript},
+			wantDecision: "allow",
+		},
+		// cd && git log — compound command with &&, both parts are allowed
+		{
+			name:         "ask-zone: cd && git log (compound allowed)",
+			toolName:     "Bash",
+			toolInput:    map[string]string{"command": "cd ~/git/x && git log"},
+			wantDecision: "allow",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, elapsed := sendRequest(t, socketPath, tc.toolName, tc.toolInput)
+
+			if tc.wantEmpty {
+				if resp != "" {
+					t.Errorf("expected empty response (local match), got: %s", resp)
+				}
+				t.Logf("%-55s  %8s  (local match)", tc.name, elapsed.Round(time.Millisecond))
+				return
+			}
+
+			if resp == "" {
+				t.Fatalf("expected non-empty response with decision=%q, got empty", tc.wantDecision)
+			}
+
+			var output HookOutput
+			if err := json.Unmarshal([]byte(resp), &output); err != nil {
+				t.Fatalf("unmarshal response: %v (raw: %s)", err, resp)
+			}
+
+			if output.HookSpecificOutput == nil {
+				t.Fatalf("expected hookSpecificOutput, got nil")
+			}
+
+			got := output.HookSpecificOutput.PermissionDecision
+			if tc.wantDecision != "" && got != tc.wantDecision {
+				t.Errorf("decision: got %q, want %q (reason: %s)", got, tc.wantDecision, output.HookSpecificOutput.PermissionDecisionReason)
+			}
+
+			t.Logf("%-55s  %8s  decision=%s  reason=%s",
+				tc.name, elapsed.Round(time.Millisecond),
+				got, output.HookSpecificOutput.PermissionDecisionReason)
+		})
+	}
+}

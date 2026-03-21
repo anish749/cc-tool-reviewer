@@ -39,9 +39,12 @@ A command may not exactly match a rule but still be consistent with the user's i
 - Piped commands where each part is individually allowed (e.g. "rg foo | grep bar")
 - Commands with subshells that compose allowed commands
 - Slight variations of allowed patterns (e.g. additional flags on an allowed command)
+- Multi-line scripts where each executed command is individually allowed
 
-If the command is consistent with what the user has already allowed, respond "allow".
-If it is clearly not consistent with anything in the allow list, respond "ask" to let the user decide.
+IMPORTANT: Only evaluate the commands that are actually being EXECUTED by the shell, not strings that appear inside quotes, echo arguments, JSON payloads, or other data literals. For example, a script that runs echo '{"command":"rm -rf /"}' is just printing a string — it is not executing rm.
+
+If the executed commands are consistent with what the user has already allowed, respond "allow".
+If they are clearly not consistent with anything in the allow list, respond "ask" to let the user decide.
 
 Respond with ONLY a valid JSON object. No markdown, no explanation, no code fences:
 {"decision": "allow" or "ask", "reason": "brief one-line reason"}`)
