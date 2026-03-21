@@ -14,17 +14,16 @@ The "ask" zone creates friction. You get prompted for commands like `cd ~/git/x 
 
 ## Why not use Claude Code's built-in `type: "prompt"` hook?
 
-Claude Code supports a built-in `prompt` hook type that sends tool calls to a model for review. But it has limitations:
+Claude Code supports a built-in `prompt` hook type that sends tool calls to a model for review. It handles the API connection internally, so there's no connection overhead. But it has limitations:
 
 | | Built-in `prompt` hook | cc-tool-reviewer |
 |---|---|---|
 | **Fires on** | Every matching tool call | Only "ask zone" calls |
 | **`rg foo` latency** | ~700ms (API call) | ~0ms (local match) |
-| **API connection** | New each time | Persistent HTTP/2 |
 | **Prompt context** | Generic, user-defined | Injects your actual allow list |
 | **Compound commands** | No special handling | Detects `&&`, `\|\|`, `;`, multi-line and routes to AI |
 
-The key difference: cc-tool-reviewer replicates your allow/deny matching locally and only calls the API when needed. Most tool calls (~90%) are resolved in under 5ms with no API call.
+The key difference: the built-in prompt hook calls the API on every matching tool call, even ones already covered by your allow/deny rules. cc-tool-reviewer replicates your allow/deny matching locally and only calls the API for the "ask zone". Most tool calls (~90%) are resolved in under 5ms with no API call.
 
 ## Architecture
 
@@ -66,7 +65,7 @@ Add to `~/.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "nc -U /tmp/cc-tool-reviewer.sock"
+            "command": "nc -w 5 -U /tmp/cc-tool-reviewer.sock"
           }
         ]
       }
