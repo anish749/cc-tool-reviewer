@@ -59,7 +59,13 @@ func (r *Reviewer) Review(toolName string, toolInput json.RawMessage) (*ReviewDe
 		Model:     anthropic.ModelClaudeHaiku4_5,
 		MaxTokens: 128,
 		System: []anthropic.TextBlockParam{
-			{Text: r.systemPrompt},
+			{
+				Text: r.systemPrompt,
+				CacheControl: anthropic.CacheControlEphemeralParam{
+					Type: "ephemeral",
+					TTL:  anthropic.CacheControlEphemeralTTLTTL1h,
+				},
+			},
 		},
 		Messages: []anthropic.MessageParam{
 			anthropic.NewUserMessage(anthropic.NewTextBlock(userMsg)),

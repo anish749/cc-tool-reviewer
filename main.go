@@ -18,24 +18,19 @@ func main() {
 
 	// Clean up stale socket
 	if _, err := os.Stat(*socketPath); err == nil {
-		// Check if something is already listening
 		conn, err := net.Dial("unix", *socketPath)
 		if err == nil {
 			conn.Close()
 			log.Fatalf("another instance is already listening on %s", *socketPath)
 		}
-		// Stale socket file — remove it
 		os.Remove(*socketPath)
 	}
 
-	// Load settings
 	allow, deny, rawAllow := LoadRules()
 	log.Printf("loaded %d allow rules, %d deny rules", len(allow), len(deny))
 
-	// Create reviewer (persistent Anthropic client)
 	reviewer := NewReviewer(rawAllow)
 
-	// Start Unix socket listener
 	listener, err := net.Listen("unix", *socketPath)
 	if err != nil {
 		log.Fatalf("listen error: %v", err)
@@ -45,12 +40,10 @@ func main() {
 
 	log.Printf("listening on %s", *socketPath)
 
-	// Graceful shutdown
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 
 	server := NewServer(listener, allow, deny, reviewer)
-
 	go server.Serve()
 
 	<-sig
