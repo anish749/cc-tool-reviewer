@@ -131,12 +131,6 @@ Simple commands like `rg foo` match locally. But compound commands containing `&
 
 If the daemon isn't running, `nc` fails with a non-zero exit code (but not exit code 2). Claude Code treats this as a no-op and falls through to the normal permission prompt. Nothing breaks.
 
-## Testing
-
-```bash
-go test -v ./...
-```
-
 ## Performance
 
 | Scenario | Latency |
