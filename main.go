@@ -16,15 +16,8 @@ func main() {
 	socketPath := flag.String("socket", DefaultSocketPath, "Unix socket path")
 	flag.Parse()
 
-	// Clean up stale socket
-	if _, err := os.Stat(*socketPath); err == nil {
-		conn, err := net.Dial("unix", *socketPath)
-		if err == nil {
-			conn.Close()
-			log.Fatalf("another instance is already listening on %s", *socketPath)
-		}
-		os.Remove(*socketPath)
-	}
+	// Always remove stale socket before starting
+	os.Remove(*socketPath)
 
 	allow, deny, rawAllow := LoadRules()
 	log.Printf("loaded %d allow rules, %d deny rules", len(allow), len(deny))
