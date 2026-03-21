@@ -45,11 +45,24 @@ Claude Code ◀──stdout── nc ◀─────────────�
 
 ## Setup
 
-### Build
+### Install
 
 ```bash
-cd ~/git/cc-tool-reviewer
-go build -o cc-tool-reviewer .
+curl -sL https://raw.githubusercontent.com/anish749/cc-tool-reviewer/main/install.sh | bash
+```
+
+This downloads the latest release and installs to `~/.local/bin/cc-tool-reviewer`. Override the install directory with `INSTALL_DIR`:
+
+```bash
+curl -sL https://raw.githubusercontent.com/anish749/cc-tool-reviewer/main/install.sh | INSTALL_DIR=/usr/local/bin bash
+```
+
+Or build from source:
+
+```bash
+git clone https://github.com/anish749/cc-tool-reviewer.git
+cd cc-tool-reviewer
+go build -ldflags="-s -w" -o cc-tool-reviewer .
 ```
 
 ### Configure Claude Code hook
@@ -123,10 +136,6 @@ If the daemon isn't running, `nc` fails with a non-zero exit code (but not exit 
 ```bash
 go test -v ./...
 ```
-
-The integration tests start an in-process server (no daemon needed) and verify:
-- `wantLocal` — command must be resolved by local matching, never hitting the API
-- `wantAPI` — command must reach the AI (fails if the local matcher incorrectly short-circuits)
 
 ## Performance
 
