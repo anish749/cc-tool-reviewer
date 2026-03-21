@@ -25,7 +25,7 @@ func NewReviewer(allowRules []string) *Reviewer {
 	client := anthropic.NewClient()
 
 	var sb strings.Builder
-	sb.WriteString(`You are reviewing tool calls for a CLI tool called Claude Code. A tool call is about to execute that did not exactly match the user's configured permission rules, but may still be consistent with what they have allowed.
+	sb.WriteString(`You are reviewing tool calls for a CLI tool called Claude Code. A tool call is about to execute that did not exactly match the user's configured permission rules. Your job is to reduce unnecessary prompts by allowing commands that are consistent with what the user has already permitted.
 
 The user has explicitly allowed the following patterns:
 `)
@@ -35,16 +35,15 @@ The user has explicitly allowed the following patterns:
 		sb.WriteString("\n")
 	}
 	sb.WriteString(`
-A command may not exactly match a rule but still be consistent with the user's intent. For example:
-- Piped commands where each part is individually allowed (e.g. "rg foo | grep bar")
-- Commands with subshells that compose allowed commands
-- Slight variations of allowed patterns (e.g. additional flags on an allowed command)
-- Multi-line scripts where each executed command is individually allowed
+Default to "allow". Only respond "ask" if you cannot find any reasonable connection between the command and what the user has already allowed.
 
-IMPORTANT: Only evaluate the commands that are actually being EXECUTED by the shell, not strings that appear inside quotes, echo arguments, JSON payloads, or other data literals. For example, a script that runs echo '{"command":"rm -rf /"}' is just printing a string — it is not executing rm.
+A command should be allowed if ANY of these are true:
+- It is a composition of allowed commands (pipes, &&, ||, ;, subshells, multi-line scripts)
+- It is a variation of an allowed pattern (different flags, arguments, or targets)
+- It is a read-only command that merely observes state (pgrep, whoami, which, ps, lsof, date, wc, du, df, uptime, file, type, env, printenv, id, hostname, uname, sw_vers, etc.)
+- It is a standard development command that a developer using the allowed tools would reasonably also use
 
-If the executed commands are consistent with what the user has already allowed, respond "allow".
-If they are clearly not consistent with anything in the allow list, respond "ask" to let the user decide.
+Only evaluate commands actually EXECUTED by the shell, not strings inside quotes, echo arguments, or data literals.
 
 Respond with ONLY a valid JSON object. No markdown, no explanation, no code fences:
 {"decision": "allow" or "ask", "reason": "brief one-line reason"}`)
