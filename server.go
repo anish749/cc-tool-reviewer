@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 )
 
@@ -54,13 +54,13 @@ func (s *Server) handle(conn net.Conn) {
 
 	data, err := io.ReadAll(conn)
 	if err != nil {
-		log.Printf("read error: %v", err)
+		slog.Error("read error", "err", err)
 		return
 	}
 
 	var input HookInput
 	if err := json.Unmarshal(data, &input); err != nil {
-		log.Printf("json parse error: %v", err)
+		slog.Error("json parse error", "err", err)
 		return
 	}
 
@@ -75,12 +75,12 @@ func (s *Server) handle(conn net.Conn) {
 	// "Ask zone" — consult the reviewer
 	decision, err := s.reviewer.Review(input.ToolName, input.ToolInput)
 	if err != nil {
-		log.Printf("reviewer error: %v", err)
+		slog.Error("reviewer error", "err", err)
 		// Fall through to normal permission prompt
 		return
 	}
 
-	log.Printf("tool=%s decision=%s reason=%s", input.ToolName, decision.Decision, decision.Reason)
+	slog.Info("reviewed", "tool", input.ToolName, "decision", decision.Decision, "reason", decision.Reason)
 
 	output := HookOutput{
 		HookSpecificOutput: &HookSpecificOutput{
@@ -92,7 +92,7 @@ func (s *Server) handle(conn net.Conn) {
 
 	resp, err := json.Marshal(output)
 	if err != nil {
-		log.Printf("json marshal error: %v", err)
+		slog.Error("json marshal error", "err", err)
 		return
 	}
 

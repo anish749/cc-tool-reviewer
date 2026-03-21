@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -92,7 +92,7 @@ func (r *Reviewer) Review(toolName string, toolInput json.RawMessage) (*ReviewDe
 
 	var decision ReviewDecision
 	if err := json.Unmarshal([]byte(text), &decision); err != nil {
-		log.Printf("failed to parse reviewer response: %s", text)
+		slog.Warn("failed to parse reviewer response", "text", text)
 		return &ReviewDecision{Decision: "ask", Reason: "could not parse reviewer response"}, nil
 	}
 
