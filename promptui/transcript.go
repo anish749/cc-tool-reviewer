@@ -7,10 +7,8 @@ import (
 	"strings"
 )
 
-// TranscriptEntry represents a single entry from the JSONL transcript.
-type TranscriptEntry struct {
-	Role    string `json:"role"`
-	Type    string `json:"type"`
+// transcriptEntry represents a single entry from the JSONL transcript.
+type transcriptEntry struct {
 	Message struct {
 		Role    string `json:"role"`
 		Content any    `json:"content"`
@@ -19,13 +17,19 @@ type TranscriptEntry struct {
 
 // Context holds conversation context extracted from the transcript.
 type Context struct {
-	LastUserMessage string
-	RecentMessages  []string // last N messages summarized as "role: text"
+	LastUserMessage    string
+	RecentToolCalls    []ToolCallSummary
+}
+
+// ToolCallSummary is a brief description of a recent tool call.
+type ToolCallSummary struct {
+	Tool        string
+	Description string
 }
 
 // ReadContext reads the transcript JSONL file and extracts the last user message
-// and recent conversation context.
-func ReadContext(transcriptPath string, maxMessages int) Context {
+// and recent tool call history.
+func ReadContext(transcriptPath string, maxToolCalls int) Context {
 	var ctx Context
 	if transcriptPath == "" {
 		return ctx
@@ -37,67 +41,104 @@ func ReadContext(transcriptPath string, maxMessages int) Context {
 	}
 	defer f.Close()
 
-	var entries []TranscriptEntry
+	var entries []transcriptEntry
 	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB buffer for long lines
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 	for scanner.Scan() {
-		var entry TranscriptEntry
+		var entry transcriptEntry
 		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
 			continue
 		}
 		entries = append(entries, entry)
 	}
 
-	// Walk backwards to find the last user message
+	// Walk backwards to find the last user message (actual text, not tool_result)
 	for i := len(entries) - 1; i >= 0; i-- {
 		e := entries[i]
 		if e.Message.Role == "user" {
-			ctx.LastUserMessage = extractText(e.Message.Content)
-			if ctx.LastUserMessage != "" {
+			text := extractUserText(e.Message.Content)
+			if text != "" {
+				ctx.LastUserMessage = text
 				break
 			}
 		}
 	}
 
-	// Collect recent messages
-	start := len(entries) - maxMessages
-	if start < 0 {
-		start = 0
+	// Collect recent tool calls from assistant messages
+	for i := len(entries) - 1; i >= 0 && len(ctx.RecentToolCalls) < maxToolCalls; i-- {
+		e := entries[i]
+		if e.Message.Role != "assistant" {
+			continue
+		}
+		calls := extractToolCalls(e.Message.Content)
+		for j := len(calls) - 1; j >= 0 && len(ctx.RecentToolCalls) < maxToolCalls; j-- {
+			ctx.RecentToolCalls = append(ctx.RecentToolCalls, calls[j])
+		}
 	}
-	for _, e := range entries[start:] {
-		role := e.Message.Role
-		if role == "" {
-			continue
-		}
-		text := extractText(e.Message.Content)
-		if text == "" {
-			continue
-		}
-		if len(text) > 200 {
-			text = text[:200] + "..."
-		}
-		ctx.RecentMessages = append(ctx.RecentMessages, role+": "+text)
+
+	// Reverse so they're in chronological order
+	for i, j := 0, len(ctx.RecentToolCalls)-1; i < j; i, j = i+1, j-1 {
+		ctx.RecentToolCalls[i], ctx.RecentToolCalls[j] = ctx.RecentToolCalls[j], ctx.RecentToolCalls[i]
 	}
 
 	return ctx
 }
 
-// extractText pulls plain text from a message content field,
-// which can be a string or an array of content blocks.
-func extractText(content any) string {
+// extractUserText pulls plain text from a user message, skipping tool_result blocks.
+func extractUserText(content any) string {
 	switch v := content.(type) {
 	case string:
 		return strings.TrimSpace(v)
 	case []any:
 		var parts []string
 		for _, block := range v {
-			if m, ok := block.(map[string]any); ok {
-				if t, ok := m["text"].(string); ok {
-					parts = append(parts, strings.TrimSpace(t))
-				}
+			m, ok := block.(map[string]any)
+			if !ok {
+				continue
+			}
+			if m["type"] == "tool_result" {
+				continue
+			}
+			if t, ok := m["text"].(string); ok {
+				parts = append(parts, strings.TrimSpace(t))
 			}
 		}
 		return strings.Join(parts, " ")
 	}
 	return ""
+}
+
+// extractToolCalls pulls tool_use blocks from an assistant message.
+func extractToolCalls(content any) []ToolCallSummary {
+	blocks, ok := content.([]any)
+	if !ok {
+		return nil
+	}
+
+	var calls []ToolCallSummary
+	for _, block := range blocks {
+		m, ok := block.(map[string]any)
+		if !ok || m["type"] != "tool_use" {
+			continue
+		}
+
+		name, _ := m["name"].(string)
+		desc := ""
+		if input, ok := m["input"].(map[string]any); ok {
+			if d, ok := input["description"].(string); ok {
+				desc = d
+			} else if cmd, ok := input["command"].(string); ok {
+				// Fallback: use the command itself, truncated
+				if len(cmd) > 60 {
+					cmd = cmd[:60] + "..."
+				}
+				desc = cmd
+			} else if fp, ok := input["file_path"].(string); ok {
+				desc = fp
+			}
+		}
+
+		calls = append(calls, ToolCallSummary{Tool: name, Description: desc})
+	}
+	return calls
 }

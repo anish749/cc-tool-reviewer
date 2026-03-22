@@ -121,7 +121,7 @@ func (s *Server) handle(conn net.Conn) {
 	}
 
 	// AI says "ask" — show the native dialog instead of falling back to terminal
-	result, err := promptui.ShowApproval(input.ToolName, input.ToolInput, decision.Reason, ctx)
+	result, err := promptui.ShowApproval(input.ToolName, input.ToolInput, decision.Reason, input.CWD, ctx)
 	if err != nil {
 		slog.Error("dialog error", "err", err)
 		return
