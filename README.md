@@ -1,18 +1,25 @@
 # cc-tool-reviewer
 
-A fast, daemon-based AI reviewer for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) tool calls. Reduces permission prompts by using Haiku 4.5 to evaluate "ask zone" commands — those that don't match your explicit allow/deny rules but are still consistent with what you've permitted.
+A fast, daemon-based AI reviewer for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) tool calls. Reduces permission prompts by using Haiku 4.5 to evaluate commands that don't match your explicit allow/deny rules but are still consistent with what you've permitted.
 
 On macOS, shows a translucent floating HUD for approve/deny decisions instead of Claude Code's terminal prompt.
 
+<p align="center">
+  <a href="#the-problem">The problem</a> &bull;
+  <a href="#getting-started">Getting started</a> &bull;
+  <a href="#how-it-works">How it works</a> &bull;
+  <a href="#architecture">Architecture</a> &bull;
+  <a href="#performance">Performance</a> &bull;
+  <a href="#build-from-source">Build from source</a>
+</p>
+
+---
+
 ## The problem
 
-Claude Code has three permission outcomes for tool calls:
+Claude Code's permission system gives you allow and deny lists, but anything that doesn't match either becomes an "ask" that interrupts your flow. You could use `--dangerously-skip-permissions` to avoid this, but then you have no safety net at all. One bad command and your untracked files are gone, your keys are exfiltrated, or your production database is dropped.
 
-1. **Allow** — matches an allow rule, executes immediately
-2. **Deny** — matches a deny rule, blocked
-3. **Ask** — matches neither, prompts the user
-
-The "ask" zone creates friction. You get prompted for commands like `cd ~/git/x && git log` even though both `cd` and `git log` are individually allowed — the compound command doesn't match any single rule. Same for multi-line scripts that compose entirely allowed operations.
+cc-tool-reviewer sits between these two extremes. You keep your allow/deny rules, and for everything in the gray area, an AI reviewer decides if the command is consistent with what you've already permitted. If it's not sure, you get a native dialog to approve or deny with full context, not a terminal prompt you have to context-switch to.
 
 ## Getting started
 
@@ -22,7 +29,7 @@ The "ask" zone creates friction. You get prompted for commands like `cd ~/git/x 
 curl -sL https://raw.githubusercontent.com/anish749/cc-tool-reviewer/main/install.sh | bash
 ```
 
-This downloads the latest release to `~/.local/bin/`. On macOS, it also compiles the native approval dialog (requires Xcode command line tools).
+Installs to `~/.local/bin/`. On macOS, also compiles the native approval dialog (requires Xcode command line tools).
 
 To install to a different directory:
 
@@ -52,15 +59,14 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-Do **not** use `nc -w` (timeout) — the native dialog needs time for user interaction. If the daemon isn't running, `nc` fails immediately on connect, so there's no hang risk.
+Do **not** use `nc -w` (timeout). The native dialog needs time for user interaction. If the daemon isn't running, `nc` fails immediately on connect, so there's no hang risk.
 
 ### 3. Set up credentials
 
-The daemon needs access to the Anthropic API. Three options:
+The daemon needs access to the Anthropic API. Set one of:
 
-1. **`ANTHROPIC_API_KEY`** — set your API key directly
-2. **`ANTHROPIC_BASE_URL`** — inherit from a running Claude Code session (e.g., `http://localhost:1992`)
-3. **Claude Code OAuth token** — run `claude setup-token` to get a token, then set it as `ANTHROPIC_API_KEY`. This lets the daemon run independently without a separate API key or a running Claude Code session.
+- **`ANTHROPIC_API_KEY`** — an API key from the [Anthropic Console](https://console.anthropic.com/)
+- **`ANTHROPIC_AUTH_TOKEN`** — a Bearer token, if using an LLM gateway or proxy
 
 ### 4. Start the daemon
 
@@ -74,28 +80,55 @@ Or with a custom socket path:
 cc-tool-reviewer --socket /tmp/my-reviewer.sock
 ```
 
-Start the daemon outside of Claude Code (e.g., from a shell alias or launch script) since the hook would interfere with starting it from within a Claude Code session.
+Start the daemon outside of Claude Code (e.g., from a shell alias or launch script), since the hook would interfere with starting it from within a Claude Code session.
 
-Settings are hot-reloaded — no need to restart the daemon when you change your allow/deny rules.
+Settings are hot-reloaded. No need to restart the daemon when you change your allow/deny rules.
 
 ---
 
-## Developer documentation
+## How it works
 
-### Why not use Claude Code's built-in `type: "prompt"` hook?
+1. Claude Code fires the `PreToolUse` hook, piping JSON to `nc`
+2. `nc` forwards it to the daemon via Unix socket (~4ms overhead)
+3. The daemon decides what to do based on the tool type:
 
-Claude Code supports a built-in `prompt` hook type that sends tool calls to a model for review. It handles the API connection internally, so there's no connection overhead. But it has limitations:
+**Auto-allowed tools.** `WebFetch` and `WebSearch` are approved instantly with no matching or AI call. The daemon logs the URL/query for visibility.
 
-| | Built-in `prompt` hook | cc-tool-reviewer |
-|---|---|---|
-| **Fires on** | Every matching tool call | Only "ask zone" calls |
-| **`rg foo` latency** | ~700ms (API call) | ~0ms (local match) |
-| **Prompt context** | Generic, user-defined | Injects your actual allow list |
-| **Compound commands** | No special handling | Detects `&&`, `\|\|`, `;`, multi-line and routes to AI |
+**Bash commands.** Checked against your allow/deny rules locally:
+- Matches an allow or deny rule → empty response, Claude Code handles it normally
+- Compound command (`&&`, `||`, `;`, multi-line, subshells) → sent to the AI, since prefix matching can't evaluate these
+- No match ("ask zone") → calls Haiku 4.5 with your allow list as context
 
-The key difference: the built-in prompt hook calls the API on every matching tool call, even ones already covered by your allow/deny rules. cc-tool-reviewer replicates your allow/deny matching locally and only calls the API for the "ask zone". Most tool calls (~90%) are resolved in under 5ms with no API call.
+**AI says "allow"** → tool call proceeds, no prompt.
 
-### Architecture
+**AI says "ask"** → on macOS, a translucent floating HUD appears with:
+- Conversation title and working directory
+- Recent user messages and tool call history
+- The command and AI's reason for flagging it
+- A feedback text field (sent back to Claude as context when denying)
+- Three buttons: **Approve** (Cmd+Enter), **Deny**, **Later** (Esc)
+
+On non-macOS systems, "ask" falls through to Claude Code's terminal prompt.
+
+### Compound command detection
+
+Simple commands like `rg foo` match locally. Compound commands containing `&&`, `||`, `;`, newlines, or subshells (`$(...)`) bypass local matching and are always sent to the AI. `cd ~/git/x && git log` doesn't match `Bash(cd:*)` in Claude Code's real matcher, but the AI can evaluate each part and recognize both are individually allowed.
+
+### Settings
+
+Settings are loaded from (and hot-reloaded on change):
+- `$CLAUDE_CONFIG_DIR/settings.json` (falls back to `~/.claude/settings.json`)
+- `$CLAUDE_CONFIG_DIR/settings.local.json`
+- `.claude/settings.json` (project-level)
+- `.claude/settings.local.json` (project-level)
+
+### Graceful degradation
+
+If the daemon isn't running, `nc` fails with a non-zero exit code (but not exit code 2). Claude Code treats this as a no-op and falls through to the normal permission prompt. Nothing breaks.
+
+---
+
+## Architecture
 
 ```
 Claude Code ──stdin──▶ nc -U /tmp/cc-tool-reviewer.sock ──▶ Go daemon
@@ -119,61 +152,22 @@ Claude Code ──stdin──▶ nc -U /tmp/cc-tool-reviewer.sock ──▶ Go d
 Claude Code ◀──stdout── nc ◀────────────────────────────────────┘
 ```
 
-### How it works
+### Why not Claude Code's built-in `type: "prompt"` hook?
 
-1. Claude Code fires the `PreToolUse` hook, piping JSON to `nc`
-2. `nc` forwards it to the daemon via Unix socket (~4ms overhead)
-3. The daemon decides what to do based on the tool type:
+Claude Code has a built-in `prompt` hook type that sends tool calls to a model for review. It handles the API connection internally. But:
 
-**Auto-allowed tools** — `WebFetch` and `WebSearch` are always approved instantly with no matching or AI call. The daemon logs the URL/query for visibility.
+| | Built-in `prompt` hook | cc-tool-reviewer |
+|---|---|---|
+| **Fires on** | Every matching tool call | Only "ask zone" calls |
+| **`rg foo` latency** | ~700ms (API call) | ~0ms (local match) |
+| **Prompt context** | Generic, user-defined | Injects your actual allow list |
+| **Compound commands** | No special handling | Detects `&&`, `\|\|`, `;`, multi-line and routes to AI |
 
-**Bash commands** — checked against your allow/deny rules locally:
-- If it matches an allow or deny rule → empty response (Claude Code handles it normally)
-- If it's a compound command (`&&`, `||`, `;`, multi-line, subshells) → always sent to the AI, since simple prefix matching can't evaluate these
-- Otherwise ("ask zone") → calls Haiku 4.5 with your allow list as context
+cc-tool-reviewer replicates your allow/deny matching locally and only calls the API for the "ask zone". Most tool calls (~90%) are resolved in under 5ms with no API call.
 
-**AI says "allow"** → tool call proceeds, no prompt.
+---
 
-**AI says "ask"** → on macOS, a translucent floating HUD appears with:
-- Conversation title and working directory
-- Recent user messages and tool call history
-- The command and AI's reason for flagging it
-- A feedback text field (sent back to Claude as context when denying)
-- Three buttons: **Approve** (Cmd+Enter), **Deny**, **Later** (Esc)
-
-On non-macOS systems, "ask" falls through to Claude Code's terminal prompt.
-
-### Compound command detection
-
-Simple commands like `rg foo` match locally. But compound commands containing `&&`, `||`, `;`, newlines, or subshells (`$(...)`) bypass local matching and are always sent to the AI. This is because:
-
-- `cd ~/git/x && git log` doesn't match `Bash(cd:*)` in Claude Code's real matcher
-- The AI can evaluate each part and recognize both are individually allowed
-- Multi-line scripts need semantic understanding, not prefix matching
-
-### Settings
-
-Settings are loaded from (and hot-reloaded on change):
-- `$CLAUDE_CONFIG_DIR/settings.json` (falls back to `~/.claude/settings.json`)
-- `$CLAUDE_CONFIG_DIR/settings.local.json`
-- `.claude/settings.json` (project-level)
-- `.claude/settings.local.json` (project-level)
-
-### Graceful degradation
-
-If the daemon isn't running, `nc` fails with a non-zero exit code (but not exit code 2). Claude Code treats this as a no-op and falls through to the normal permission prompt. Nothing breaks.
-
-### Build from source
-
-```bash
-git clone https://github.com/anish749/cc-tool-reviewer.git
-cd cc-tool-reviewer
-make install
-```
-
-The Makefile builds the Go daemon and the Swift dialog (on macOS) from source and installs both to `~/.local/bin/`.
-
-### Performance
+## Performance
 
 | Scenario | Latency |
 |----------|---------|
@@ -182,3 +176,15 @@ The Makefile builds the Go daemon and the Swift dialog (on macOS) from source an
 | API call (cold connection) | ~1000ms |
 | API call (warm connection) | ~700ms |
 | Daemon not running (fallback) | ~4ms (nc fails fast) |
+
+---
+
+## Build from source
+
+```bash
+git clone https://github.com/anish749/cc-tool-reviewer.git
+cd cc-tool-reviewer
+make install
+```
+
+The Makefile builds the Go daemon and the Swift dialog (on macOS) from source and installs both to `~/.local/bin/`.
