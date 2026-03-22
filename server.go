@@ -105,19 +105,6 @@ func (s *Server) handle(conn net.Conn) {
 	// Read conversation context from transcript
 	ctx := promptui.ReadContext(input.TranscriptPath, 6)
 
-	// AskUserQuestion gets its own dialog
-	if input.ToolName == "AskUserQuestion" {
-		result, err := promptui.ShowAskUserQuestion(input.ToolInput, ctx)
-		if err != nil || result.Cancelled {
-			slog.Info("ask-user-question cancelled", "tool", input.ToolName)
-			return // fall through to Claude Code's normal prompt
-		}
-		slog.Info("ask-user-question answered", "selected", result.Selected)
-		// Return the selection — Claude Code will see this as additional context
-		s.writeAllow(conn, "user selected: "+result.Selected)
-		return
-	}
-
 	// "Ask zone" — consult the AI reviewer
 	decision, err := reviewer.Review(input.ToolName, input.ToolInput)
 	if err != nil {

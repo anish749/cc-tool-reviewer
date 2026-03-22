@@ -65,7 +65,7 @@ This downloads the latest release to `~/.local/bin/`. On macOS, it also compiles
 curl -sL https://raw.githubusercontent.com/anish749/cc-tool-reviewer/main/install.sh | INSTALL_DIR=/usr/local/bin bash
 ```
 
-### Build from source
+### Build from source (for development)
 
 ```bash
 git clone https://github.com/anish749/cc-tool-reviewer.git
@@ -73,7 +73,7 @@ cd cc-tool-reviewer
 make install
 ```
 
-This builds the Go daemon and the Swift dialog (on macOS) and installs both to `~/.local/bin/`.
+The Makefile is for local development — it builds the Go daemon and the Swift dialog (on macOS) from source and installs both to `~/.local/bin/`.
 
 ### Configure Claude Code hook
 
@@ -156,16 +156,6 @@ Simple commands like `rg foo` match locally. But compound commands containing `&
 ## Graceful degradation
 
 If the daemon isn't running, `nc` fails with a non-zero exit code (but not exit code 2). Claude Code treats this as a no-op and falls through to the normal permission prompt. Nothing breaks.
-
-## Testing
-
-```bash
-go test -v ./...
-```
-
-The integration tests start an in-process server (no daemon needed) and verify:
-- `wantLocal` — command must be resolved by local matching, never hitting the API
-- `wantAPI` — command must reach the AI (fails if the local matcher incorrectly short-circuits)
 
 ## Performance
 

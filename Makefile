@@ -1,3 +1,5 @@
+# Makefile for local development — builds from source and installs.
+# End users should use install.sh instead, which downloads a pre-built release.
 INSTALL_DIR ?= $(HOME)/.local/bin
 
 .PHONY: build install clean

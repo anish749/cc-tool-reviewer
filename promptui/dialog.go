@@ -1,12 +1,9 @@
-// Package promptui provides native macOS dialogs for tool call approval
-// and AskUserQuestion responses.
-// Uses a compiled Swift binary for the approval dialog (translucent HUD)
-// and osascript for AskUserQuestion (list picker).
+// Package promptui provides native macOS dialogs for tool call approval.
+// Uses a compiled Swift binary for a translucent HUD overlay.
 package promptui
 
 import (
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -71,83 +68,6 @@ func ShowApproval(toolName string, toolInput json.RawMessage, aiReason string, c
 	}
 }
 
-// AskQuestionResult is the outcome of an AskUserQuestion dialog.
-type AskQuestionResult struct {
-	Cancelled bool
-	Selected  string // the label of the selected option
-}
-
-// AskUserQuestionInput represents the parsed tool_input for AskUserQuestion.
-type AskUserQuestionInput struct {
-	Questions []struct {
-		Question string `json:"question"`
-		Options  []struct {
-			Label       string `json:"label"`
-			Description string `json:"description"`
-		} `json:"options"`
-	} `json:"questions"`
-}
-
-// ShowAskUserQuestion shows a native macOS dialog for an AskUserQuestion tool call.
-// Displays the question and options as a list the user can choose from.
-func ShowAskUserQuestion(toolInput json.RawMessage, ctx Context) (AskQuestionResult, error) {
-	var input AskUserQuestionInput
-	if err := json.Unmarshal(toolInput, &input); err != nil {
-		return AskQuestionResult{Cancelled: true}, err
-	}
-
-	if len(input.Questions) == 0 || len(input.Questions[0].Options) == 0 {
-		return AskQuestionResult{Cancelled: true}, nil
-	}
-
-	q := input.Questions[0]
-
-	// Build option labels with descriptions
-	var optionLabels []string
-	for _, opt := range q.Options {
-		label := opt.Label
-		if opt.Description != "" {
-			label += " — " + opt.Description
-		}
-		optionLabels = append(optionLabels, quoteAppleScript(label))
-	}
-
-	prompt := q.Question
-	if ctx.LastUserMessage != "" {
-		prompt = "Context: " + truncate(ctx.LastUserMessage, 100) + "\n\n" + q.Question
-	}
-
-	script := fmt.Sprintf(
-		`choose from list {%s} with title "cc-tool-reviewer" with prompt %s`,
-		strings.Join(optionLabels, ", "),
-		quoteAppleScript(prompt),
-	)
-
-	out, err := exec.Command("osascript", "-e", script).CombinedOutput()
-	slog.Info("ask-question dialog", "output", strings.TrimSpace(string(out)), "err", err)
-	if err != nil {
-		return AskQuestionResult{Cancelled: true}, nil
-	}
-
-	selected := strings.TrimSpace(string(out))
-	if selected == "false" || selected == "" {
-		return AskQuestionResult{Cancelled: true}, nil
-	}
-
-	// Match back to the original label (strip description we appended)
-	for _, opt := range q.Options {
-		full := opt.Label
-		if opt.Description != "" {
-			full += " — " + opt.Description
-		}
-		if selected == full {
-			return AskQuestionResult{Selected: opt.Label}, nil
-		}
-	}
-
-	return AskQuestionResult{Selected: selected}, nil
-}
-
 func extractCommandSummary(toolName string, toolInput json.RawMessage) string {
 	var m map[string]any
 	if err := json.Unmarshal(toolInput, &m); err != nil {
@@ -173,13 +93,6 @@ func extractCommandSummary(toolName string, toolInput json.RawMessage) string {
 		}
 	}
 	return string(toolInput)
-}
-
-// quoteAppleScript quotes a string for use in AppleScript.
-func quoteAppleScript(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "\"", "\\\"")
-	return "\"" + s + "\""
 }
 
 func truncate(s string, maxLen int) string {
