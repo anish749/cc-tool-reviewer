@@ -42,38 +42,46 @@ func ShowApproval(toolName string, toolInput json.RawMessage, aiReason string, c
 	command := extractCommandSummary(toolName, toolInput)
 	description := extractDescription(toolInput)
 
-	// Build a rich user message with all context
-	var userMsg strings.Builder
-	if ctx.LastUserMessage != "" {
-		userMsg.WriteString(ctx.LastUserMessage)
+	// Build recent tool calls as separate lines
+	var recent strings.Builder
+	calls := ctx.RecentToolCalls
+	if len(calls) > 5 {
+		calls = calls[len(calls)-5:]
 	}
-	if cwd != "" {
-		if userMsg.Len() > 0 {
-			userMsg.WriteString("\n\n")
-		}
-		userMsg.WriteString("📁 " + cwd)
-	}
-	if len(ctx.RecentToolCalls) > 0 {
-		if userMsg.Len() > 0 {
-			userMsg.WriteString("\n\n")
-		}
-		userMsg.WriteString("Recent: ")
-		for i, tc := range ctx.RecentToolCalls {
-			if i > 0 {
-				userMsg.WriteString(" → ")
-			}
-			if tc.Description != "" {
-				userMsg.WriteString(tc.Description)
-			} else {
-				userMsg.WriteString(tc.Tool)
-			}
+	for _, tc := range calls {
+		if tc.Description != "" {
+			recent.WriteString("  · " + tc.Description + "\n")
+		} else {
+			recent.WriteString("  · " + tc.Tool + "\n")
 		}
 	}
 
-	// If there's a description, prepend it to the tool name
+	// Pack into the 4 args the Swift binary expects:
+	// arg1: tool (with description)
+	// arg2: command
+	// arg3: ai reason
+	// arg4: context block (user message + cwd + recent)
 	toolDisplay := toolName
 	if description != "" {
-		toolDisplay = toolName + " — " + description
+		toolDisplay = toolName + ": " + description
+	}
+
+	var userContext strings.Builder
+	for i, msg := range ctx.RecentUserMessages {
+		if i > 0 {
+			userContext.WriteString("\n")
+		}
+		if len(msg) > 150 {
+			msg = msg[:150] + "..."
+		}
+		userContext.WriteString("> " + msg)
+	}
+	if recent.Len() > 0 {
+		if userContext.Len() > 0 {
+			userContext.WriteString("\n\n")
+		}
+		userContext.WriteString("Recent:\n")
+		userContext.WriteString(recent.String())
 	}
 
 	out, err := exec.Command(
@@ -81,7 +89,8 @@ func ShowApproval(toolName string, toolInput json.RawMessage, aiReason string, c
 		toolDisplay,
 		truncate(command, 500),
 		aiReason,
-		userMsg.String(),
+		userContext.String(),
+		cwd,
 	).CombinedOutput()
 
 	output := strings.TrimSpace(string(out))

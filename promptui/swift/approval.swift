@@ -2,12 +2,13 @@
 
 import Cocoa
 
-// Read arguments: tool, command, aiReason, userMessage
+// Read arguments: tool, command, aiReason, userMessage, cwd
 let args = CommandLine.arguments
 let tool = args.count > 1 ? args[1] : "Unknown"
 let command = args.count > 2 ? args[2] : ""
 let aiReason = args.count > 3 ? args[3] : ""
 let userMessage = args.count > 4 ? args[4] : ""
+let cwd = args.count > 5 ? args[5] : ""
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
@@ -81,6 +82,15 @@ func makeSeparator() -> NSBox {
 // Title
 let titleLabel = makeLabel("Tool Review", size: 16, bold: true, color: .white)
 stack.addArrangedSubview(titleLabel)
+
+// CWD
+if !cwd.isEmpty {
+    let cwdLabel = makeLabel("📁 " + cwd, size: 11, color: NSColor.white.withAlphaComponent(0.4))
+    cwdLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+    stack.addArrangedSubview(cwdLabel)
+}
+
+stack.addArrangedSubview(makeSeparator())
 
 // User message context
 if !userMessage.isEmpty {
