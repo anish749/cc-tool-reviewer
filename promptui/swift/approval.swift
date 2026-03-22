@@ -12,6 +12,20 @@ let userMessage = args.count > 4 ? args[4] : ""
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
+// Add Edit menu so Cmd+V/C/X/A work in the text field
+let mainMenu = NSMenu()
+let editMenuItem = NSMenuItem()
+editMenuItem.submenu = {
+    let menu = NSMenu(title: "Edit")
+    menu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+    menu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+    menu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+    menu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+    return menu
+}()
+mainMenu.addItem(editMenuItem)
+app.mainMenu = mainMenu
+
 // Create the panel — floating, translucent
 let panel = NSPanel(
     contentRect: NSRect(x: 0, y: 0, width: 520, height: 0),
@@ -123,6 +137,26 @@ if !aiReason.isEmpty {
 
 stack.addArrangedSubview(makeSeparator())
 
+// Feedback text field
+let feedbackHeader = makeLabel("FEEDBACK (optional)", size: 10, bold: true, color: NSColor.white.withAlphaComponent(0.5))
+stack.addArrangedSubview(feedbackHeader)
+
+let feedbackField = NSTextField()
+feedbackField.placeholderString = "When denying, tell Claude what to do instead"
+feedbackField.font = .systemFont(ofSize: 12)
+feedbackField.textColor = .white
+feedbackField.backgroundColor = NSColor.white.withAlphaComponent(0.08)
+feedbackField.isEditable = true
+feedbackField.isSelectable = true
+feedbackField.isBordered = false
+feedbackField.isBezeled = true
+feedbackField.bezelStyle = .roundedBezel
+feedbackField.focusRingType = .none
+feedbackField.translatesAutoresizingMaskIntoConstraints = false
+feedbackField.preferredMaxLayoutWidth = 472
+stack.addArrangedSubview(feedbackField)
+feedbackField.widthAnchor.constraint(equalToConstant: 472).isActive = true
+
 // Buttons
 let buttonStack = NSStackView()
 buttonStack.orientation = .horizontal
@@ -158,6 +192,7 @@ buttonStack.widthAnchor.constraint(equalToConstant: 472).isActive = true
 // Track which button was clicked
 class ButtonHandler: NSObject {
     var result = "later"
+    var feedback: String { feedbackField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     @objc func approve(_ sender: Any?) { result = "approve"; NSApp.stop(nil) }
     @objc func deny(_ sender: Any?) { result = "deny"; NSApp.stop(nil) }
@@ -205,13 +240,17 @@ panel.center()
 // Show and run
 panel.makeKeyAndOrderFront(nil)
 app.activate(ignoringOtherApps: true)
+panel.makeFirstResponder(feedbackField)
 
-// Make Approve the default (Enter key)
+// Keyboard shortcuts — Cmd+Enter = Approve, Escape = Later
 approveBtn.keyEquivalent = "\r"
-// Escape = Later
+approveBtn.keyEquivalentModifierMask = [.command]
 laterBtn.keyEquivalent = "\u{1b}"
 
 app.run()
 
-// Print result
+// Print result: "decision\nfeedback"
 print(handler.result)
+if !handler.feedback.isEmpty {
+    print(handler.feedback)
+}

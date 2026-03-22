@@ -22,6 +22,7 @@ const (
 
 type ApprovalResult struct {
 	Decision Decision
+	Feedback string // optional user feedback text
 }
 
 // dialogBinary returns the path to the compiled Swift approval dialog binary.
@@ -83,20 +84,28 @@ func ShowApproval(toolName string, toolInput json.RawMessage, aiReason string, c
 		userMsg.String(),
 	).CombinedOutput()
 
-	result := strings.TrimSpace(string(out))
-	slog.Info("approval dialog", "output", result, "err", err)
+	output := strings.TrimSpace(string(out))
+	slog.Info("approval dialog", "output", output, "err", err)
 
 	if err != nil {
 		return ApprovalResult{Decision: DecisionLater}, nil
 	}
 
-	switch result {
+	// Output format: "decision\nfeedback" (feedback is optional)
+	lines := strings.SplitN(output, "\n", 2)
+	decision := lines[0]
+	feedback := ""
+	if len(lines) > 1 {
+		feedback = strings.TrimSpace(lines[1])
+	}
+
+	switch decision {
 	case "approve":
-		return ApprovalResult{Decision: DecisionApprove}, nil
+		return ApprovalResult{Decision: DecisionApprove, Feedback: feedback}, nil
 	case "deny":
-		return ApprovalResult{Decision: DecisionDeny}, nil
+		return ApprovalResult{Decision: DecisionDeny, Feedback: feedback}, nil
 	default:
-		return ApprovalResult{Decision: DecisionLater}, nil
+		return ApprovalResult{Decision: DecisionLater, Feedback: feedback}, nil
 	}
 }
 
