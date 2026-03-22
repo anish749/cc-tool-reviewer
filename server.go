@@ -27,6 +27,7 @@ type HookSpecificOutput struct {
 	HookEventName            string `json:"hookEventName"`
 	PermissionDecision       string `json:"permissionDecision"`
 	PermissionDecisionReason string `json:"permissionDecisionReason"`
+	AdditionalContext        string `json:"additionalContext,omitempty"`
 }
 
 type Server struct {
@@ -129,27 +130,28 @@ func (s *Server) handle(conn net.Conn) {
 
 	switch result.Decision {
 	case promptui.DecisionApprove:
-		slog.Info("user decided", "tool", input.ToolName, "decision", "allow")
-		s.writeAllow(conn, "user approved")
+		slog.Info("user decided", "tool", input.ToolName, "decision", "allow", "feedback", result.Feedback)
+		s.writeResponse(conn, "allow", "user approved", result.Feedback)
 	case promptui.DecisionDeny:
-		slog.Info("user decided", "tool", input.ToolName, "decision", "deny")
-		s.writeDecision(conn, "deny", "user denied")
+		slog.Info("user decided", "tool", input.ToolName, "decision", "deny", "feedback", result.Feedback)
+		s.writeResponse(conn, "deny", "user denied", result.Feedback)
 	case promptui.DecisionLater:
 		slog.Info("user decided", "tool", input.ToolName, "decision", "later")
-		s.writeDecision(conn, "ask", "deferred to terminal prompt")
+		s.writeResponse(conn, "ask", "deferred to terminal prompt", "")
 	}
 }
 
 func (s *Server) writeAllow(conn net.Conn, reason string) {
-	s.writeDecision(conn, "allow", reason)
+	s.writeResponse(conn, "allow", reason, "")
 }
 
-func (s *Server) writeDecision(conn net.Conn, decision, reason string) {
+func (s *Server) writeResponse(conn net.Conn, decision, reason, additionalContext string) {
 	output := HookOutput{
 		HookSpecificOutput: &HookSpecificOutput{
 			HookEventName:            "PreToolUse",
 			PermissionDecision:       decision,
 			PermissionDecisionReason: reason,
+			AdditionalContext:        additionalContext,
 		},
 	}
 	resp, _ := json.Marshal(output)
