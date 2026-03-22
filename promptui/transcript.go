@@ -146,14 +146,20 @@ func extractToolCalls(content any) []ToolCallSummary {
 		if input, ok := m["input"].(map[string]any); ok {
 			if fp, ok := input["file_path"].(string); ok {
 				desc = fp
-				dedupKey = name + ":" + fp
-			} else if d, ok := input["description"].(string); ok {
-				desc = d
+				dedupKey = "file:" + fp
 			} else if cmd, ok := input["command"].(string); ok {
 				if len(cmd) > 60 {
-					cmd = cmd[:60] + "..."
+					desc = cmd[:60] + "..."
+				} else {
+					desc = cmd
 				}
-				desc = cmd
+				dedupKey = "cmd:" + desc
+				// Prefer description over raw command for display
+				if d, ok := input["description"].(string); ok {
+					desc = d
+				}
+			} else if d, ok := input["description"].(string); ok {
+				desc = d
 			}
 		}
 
