@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/anish/cc-tool-reviewer/configwatcher"
 	"github.com/lmittmann/tint"
 )
 
@@ -41,11 +42,26 @@ func main() {
 
 	slog.Info("listening", "socket", *socketPath)
 
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-
 	server := NewServer(listener, allow, deny, reviewer)
 	go server.Serve()
+
+	// Watch config directory for settings changes
+	configDir := claudeConfigDir()
+	watcher, err := configwatcher.New([]string{configDir}, func() {
+		newAllow, newDeny, newRawAllow := LoadRules()
+		newReviewer := NewReviewer(newRawAllow)
+		server.Reload(newAllow, newDeny, newReviewer)
+		slog.Info("reloaded rules", "allow", len(newAllow), "deny", len(newDeny))
+	})
+	if err != nil {
+		slog.Warn("config watcher failed to start", "err", err)
+	} else {
+		watcher.Start()
+		defer watcher.Stop()
+	}
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 
 	<-sig
 	fmt.Println()
