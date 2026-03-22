@@ -68,19 +68,16 @@ func ShowApproval(toolName string, toolInput json.RawMessage, aiReason string, c
 		toolDisplay = toolName + " — " + description
 	}
 
-	var context strings.Builder
-	if cwd != "" {
-		context.WriteString("📁 " + cwd + "\n\n")
-	}
+	var userContext strings.Builder
 	if ctx.LastUserMessage != "" {
-		context.WriteString(ctx.LastUserMessage)
+		userContext.WriteString(ctx.LastUserMessage)
 	}
 	if recent.Len() > 0 {
-		if context.Len() > 0 {
-			context.WriteString("\n\n")
+		if userContext.Len() > 0 {
+			userContext.WriteString("\n\n")
 		}
-		context.WriteString("Recent:\n")
-		context.WriteString(recent.String())
+		userContext.WriteString("Recent:\n")
+		userContext.WriteString(recent.String())
 	}
 
 	out, err := exec.Command(
@@ -88,7 +85,8 @@ func ShowApproval(toolName string, toolInput json.RawMessage, aiReason string, c
 		toolDisplay,
 		truncate(command, 500),
 		aiReason,
-		context.String(),
+		userContext.String(),
+		cwd,
 	).CombinedOutput()
 
 	output := strings.TrimSpace(string(out))
