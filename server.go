@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"sync"
 )
 
 type HookInput struct {
@@ -24,6 +25,7 @@ type HookSpecificOutput struct {
 
 type Server struct {
 	listener net.Listener
+	mu       sync.RWMutex
 	allow    []Rule
 	deny     []Rule
 	reviewer *Reviewer
@@ -36,6 +38,16 @@ func NewServer(listener net.Listener, allow, deny []Rule, reviewer *Reviewer) *S
 		deny:     deny,
 		reviewer: reviewer,
 	}
+}
+
+// Reload swaps the allow/deny rules and reviewer with new values.
+// Safe to call while the server is handling requests.
+func (s *Server) Reload(allow, deny []Rule, reviewer *Reviewer) {
+	s.mu.Lock()
+	s.allow = allow
+	s.deny = deny
+	s.reviewer = reviewer
+	s.mu.Unlock()
 }
 
 func (s *Server) Serve() {
@@ -70,16 +82,22 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 
+	s.mu.RLock()
+	allow := s.allow
+	deny := s.deny
+	reviewer := s.reviewer
+	s.mu.RUnlock()
+
 	// Matched by allow or deny rules → empty response (let Claude Code handle it)
-	if MatchesAny(input.ToolName, input.ToolInput, s.allow) {
+	if MatchesAny(input.ToolName, input.ToolInput, allow) {
 		return
 	}
-	if MatchesAny(input.ToolName, input.ToolInput, s.deny) {
+	if MatchesAny(input.ToolName, input.ToolInput, deny) {
 		return
 	}
 
 	// "Ask zone" — consult the reviewer
-	decision, err := s.reviewer.Review(input.ToolName, input.ToolInput)
+	decision, err := reviewer.Review(input.ToolName, input.ToolInput)
 	if err != nil {
 		slog.Error("reviewer error", "err", err)
 		// Fall through to normal permission prompt
