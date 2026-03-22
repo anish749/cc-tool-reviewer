@@ -2,6 +2,8 @@
 
 A fast, daemon-based AI reviewer for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) tool calls. Reduces permission prompts by using Haiku 4.5 to evaluate "ask zone" commands — those that don't match your explicit allow/deny rules but are still consistent with what you've permitted.
 
+On macOS, shows a translucent floating HUD for approve/deny decisions instead of Claude Code's terminal prompt.
+
 ## The problem
 
 Claude Code has three permission outcomes for tool calls:
@@ -42,31 +44,36 @@ Claude Code ──stdin──▶ nc -U /tmp/cc-tool-reviewer.sock ──▶ Go d
                                                     │ 3. Call Haiku 4.5   │
                                                     │    via persistent   │
                                                     │    HTTP/2 conn      │
+                                                    │         ↓ "ask"     │
+                                                    │ 4. Native dialog    │
+                                                    │    (macOS only)     │
                                                     └──────────┬──────────┘
 Claude Code ◀──stdout── nc ◀────────────────────────────────────┘
 ```
 
 ## Setup
 
-### Install
+### Install from release
 
 ```bash
 curl -sL https://raw.githubusercontent.com/anish749/cc-tool-reviewer/main/install.sh | bash
 ```
 
-This downloads the latest release and installs to `~/.local/bin/cc-tool-reviewer`. Override the install directory with `INSTALL_DIR`:
+This downloads the latest release to `~/.local/bin/`. On macOS, it also compiles the native approval dialog from source (requires Xcode command line tools). Override the install directory with `INSTALL_DIR`:
 
 ```bash
 curl -sL https://raw.githubusercontent.com/anish749/cc-tool-reviewer/main/install.sh | INSTALL_DIR=/usr/local/bin bash
 ```
 
-Or build from source:
+### Build from source
 
 ```bash
 git clone https://github.com/anish749/cc-tool-reviewer.git
 cd cc-tool-reviewer
-go build -ldflags="-s -w" -o cc-tool-reviewer .
+make install
 ```
+
+This builds the Go daemon and the Swift dialog (on macOS) and installs both to `~/.local/bin/`.
 
 ### Configure Claude Code hook
 
@@ -90,23 +97,27 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
+Do **not** use `nc -w` (timeout) — the native dialog needs time for user interaction. If the daemon isn't running, `nc` fails immediately on connect, so there's no hang risk.
+
 ### Start the daemon
 
 ```bash
-./cc-tool-reviewer
+cc-tool-reviewer
 ```
 
 Or with a custom socket path:
 
 ```bash
-./cc-tool-reviewer --socket /tmp/my-reviewer.sock
+cc-tool-reviewer --socket /tmp/my-reviewer.sock
 ```
+
+The daemon should be started outside of Claude Code (e.g., from a shell alias or launch script) since the hook would interfere with starting it from within a Claude Code session.
 
 ### Environment
 
-The daemon needs access to the Anthropic API. It uses the standard `ANTHROPIC_API_KEY` environment variable, or inherits `ANTHROPIC_BASE_URL` if set (e.g., when started from within a Claude Code session).
+The daemon needs access to the Anthropic API. It uses the standard `ANTHROPIC_API_KEY` environment variable, or inherits `ANTHROPIC_BASE_URL` if set (e.g., when started alongside a Claude Code session).
 
-Settings are loaded from:
+Settings are loaded from (and hot-reloaded on change):
 - `$CLAUDE_CONFIG_DIR/settings.json` (falls back to `~/.claude/settings.json`)
 - `$CLAUDE_CONFIG_DIR/settings.local.json`
 - `.claude/settings.json` (project-level)
@@ -125,21 +136,14 @@ Settings are loaded from:
 - If it's a compound command (`&&`, `||`, `;`, multi-line, subshells) → always sent to the AI, since simple prefix matching can't evaluate these
 - Otherwise ("ask zone") → calls Haiku 4.5 with your allow list as context
 
-The AI never denies — it either allows or defers to you.
+**AI says "allow"** → tool call proceeds, no prompt.
 
-### Native macOS dialogs (ask zone)
-
-When the AI reviewer says "ask", a native macOS dialog pops up via `osascript` instead of falling back to Claude Code's terminal prompt. The dialog shows:
-- What the user asked (from the conversation transcript)
-- The tool name and command
-- The AI's reason for flagging it
-
-Three buttons:
-- **Approve** — allows the tool call
+**AI says "ask"** → on macOS, a translucent floating HUD appears with three options:
+- **Approve** (Enter) — allows the tool call
 - **Deny** — blocks the tool call
-- **Later** — defers to Claude Code's terminal prompt (useful when you're busy and want to come back to it)
+- **Later** (Esc) — defers to Claude Code's terminal prompt
 
-Since the dialog can take time for user interaction, the `nc` command in the hook config should **not** have a `-w` timeout — otherwise `nc` may close the connection before you click. Use `nc -U /tmp/cc-tool-reviewer.sock` without `-w`.
+On non-macOS systems, "ask" falls through to Claude Code's terminal prompt.
 
 ### Compound command detection
 
@@ -152,6 +156,16 @@ Simple commands like `rg foo` match locally. But compound commands containing `&
 ## Graceful degradation
 
 If the daemon isn't running, `nc` fails with a non-zero exit code (but not exit code 2). Claude Code treats this as a no-op and falls through to the normal permission prompt. Nothing breaks.
+
+## Testing
+
+```bash
+go test -v ./...
+```
+
+The integration tests start an in-process server (no daemon needed) and verify:
+- `wantLocal` — command must be resolved by local matching, never hitting the API
+- `wantAPI` — command must reach the AI (fails if the local matcher incorrectly short-circuits)
 
 ## Performance
 

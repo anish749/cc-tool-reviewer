@@ -1,12 +1,16 @@
 // Package promptui provides native macOS dialogs for tool call approval
-// and AskUserQuestion responses, using osascript.
+// and AskUserQuestion responses.
+// Uses a compiled Swift binary for the approval dialog (translucent HUD)
+// and osascript for AskUserQuestion (list picker).
 package promptui
 
 import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -24,43 +28,43 @@ type ApprovalResult struct {
 	Decision Decision
 }
 
-// ShowApproval shows a native macOS dialog for approving/denying a tool call.
-// It displays the tool name, command details, AI reason, and conversation context.
+// dialogBinary returns the path to the compiled Swift approval dialog binary.
+// It looks next to the main binary first, then falls back to the working directory.
+func dialogBinary() string {
+	if exe, err := os.Executable(); err == nil {
+		candidate := filepath.Join(filepath.Dir(exe), "approval-dialog")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return "approval-dialog"
+}
+
+// ShowApproval shows a native macOS translucent HUD dialog for approving/denying a tool call.
+// Uses the compiled Swift binary for the UI.
 // "Later" defers the decision to Claude Code's normal terminal prompt.
 func ShowApproval(toolName string, toolInput json.RawMessage, aiReason string, ctx Context) (ApprovalResult, error) {
 	command := extractCommandSummary(toolName, toolInput)
 
-	var body strings.Builder
-	if ctx.LastUserMessage != "" {
-		body.WriteString("User asked: ")
-		body.WriteString(truncate(ctx.LastUserMessage, 150))
-		body.WriteString("\n\n")
-	}
-	body.WriteString("Tool: ")
-	body.WriteString(toolName)
-	body.WriteString("\nCommand: ")
-	body.WriteString(truncate(command, 300))
-	if aiReason != "" {
-		body.WriteString("\n\nAI reason: ")
-		body.WriteString(aiReason)
-	}
+	out, err := exec.Command(
+		dialogBinary(),
+		toolName,
+		truncate(command, 500),
+		aiReason,
+		truncate(ctx.LastUserMessage, 200),
+	).CombinedOutput()
 
-	script := fmt.Sprintf(
-		`display dialog %s with title "cc-tool-reviewer" buttons {"Deny", "Later", "Approve"} default button "Approve"`,
-		quoteAppleScript(body.String()),
-	)
+	result := strings.TrimSpace(string(out))
+	slog.Info("approval dialog", "output", result, "err", err)
 
-	out, err := exec.Command("osascript", "-e", script).CombinedOutput()
-	slog.Info("approval dialog", "output", strings.TrimSpace(string(out)), "err", err)
 	if err != nil {
 		return ApprovalResult{Decision: DecisionLater}, nil
 	}
 
-	outStr := string(out)
-	switch {
-	case strings.Contains(outStr, "Approve"):
+	switch result {
+	case "approve":
 		return ApprovalResult{Decision: DecisionApprove}, nil
-	case strings.Contains(outStr, "Deny"):
+	case "deny":
 		return ApprovalResult{Decision: DecisionDeny}, nil
 	default:
 		return ApprovalResult{Decision: DecisionLater}, nil
