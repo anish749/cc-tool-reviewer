@@ -6,11 +6,17 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+
+	"github.com/anish/cc-tool-reviewer/promptui"
 )
 
 type HookInput struct {
-	ToolName  string          `json:"tool_name"`
-	ToolInput json.RawMessage `json:"tool_input"`
+	SessionID      string          `json:"session_id"`
+	TranscriptPath string          `json:"transcript_path"`
+	CWD            string          `json:"cwd"`
+	ToolName       string          `json:"tool_name"`
+	ToolInput      json.RawMessage `json:"tool_input"`
+	ToolUseID      string          `json:"tool_use_id"`
 }
 
 type HookOutput struct {
@@ -96,21 +102,55 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 
-	// "Ask zone" — consult the reviewer
+	// Read conversation context from transcript
+	ctx := promptui.ReadContext(input.TranscriptPath, 6)
+
+	// AskUserQuestion gets its own dialog
+	if input.ToolName == "AskUserQuestion" {
+		result, err := promptui.ShowAskUserQuestion(input.ToolInput, ctx)
+		if err != nil || result.Cancelled {
+			slog.Info("ask-user-question cancelled", "tool", input.ToolName)
+			return // fall through to Claude Code's normal prompt
+		}
+		slog.Info("ask-user-question answered", "selected", result.Selected)
+		// Return the selection — Claude Code will see this as additional context
+		s.writeAllow(conn, "user selected: "+result.Selected)
+		return
+	}
+
+	// "Ask zone" — consult the AI reviewer
 	decision, err := reviewer.Review(input.ToolName, input.ToolInput)
 	if err != nil {
 		slog.Error("reviewer error", "err", err)
-		// Fall through to normal permission prompt
 		return
 	}
 
 	slog.Info("reviewed", "tool", input.ToolName, "decision", decision.Decision, "reason", decision.Reason)
 
+	// If AI says "allow", pass it through
+	if decision.Decision == "allow" {
+		s.writeAllow(conn, "AI reviewer: "+decision.Reason)
+		return
+	}
+
+	// AI says "ask" — show the native dialog instead of falling back to terminal
+	result, err := promptui.ShowApproval(input.ToolName, input.ToolInput, decision.Reason, ctx)
+	if err != nil {
+		slog.Error("dialog error", "err", err)
+		return
+	}
+
+	finalDecision := "deny"
+	if result.Approved {
+		finalDecision = "allow"
+	}
+	slog.Info("user decided", "tool", input.ToolName, "decision", finalDecision)
+
 	output := HookOutput{
 		HookSpecificOutput: &HookSpecificOutput{
 			HookEventName:            "PreToolUse",
-			PermissionDecision:       decision.Decision,
-			PermissionDecisionReason: "AI reviewer: " + decision.Reason,
+			PermissionDecision:       finalDecision,
+			PermissionDecisionReason: "user: " + finalDecision,
 		},
 	}
 
