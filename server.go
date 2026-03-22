@@ -6,11 +6,17 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+
+	"github.com/anish/cc-tool-reviewer/promptui"
 )
 
 type HookInput struct {
-	ToolName  string          `json:"tool_name"`
-	ToolInput json.RawMessage `json:"tool_input"`
+	SessionID      string          `json:"session_id"`
+	TranscriptPath string          `json:"transcript_path"`
+	CWD            string          `json:"cwd"`
+	ToolName       string          `json:"tool_name"`
+	ToolInput      json.RawMessage `json:"tool_input"`
+	ToolUseID      string          `json:"tool_use_id"`
 }
 
 type HookOutput struct {
@@ -96,38 +102,53 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 
-	// "Ask zone" — consult the reviewer
+	// Read conversation context from transcript
+	ctx := promptui.ReadContext(input.TranscriptPath, 6)
+
+	// "Ask zone" — consult the AI reviewer
 	decision, err := reviewer.Review(input.ToolName, input.ToolInput)
 	if err != nil {
 		slog.Error("reviewer error", "err", err)
-		// Fall through to normal permission prompt
 		return
 	}
 
 	slog.Info("reviewed", "tool", input.ToolName, "decision", decision.Decision, "reason", decision.Reason)
 
-	output := HookOutput{
-		HookSpecificOutput: &HookSpecificOutput{
-			HookEventName:            "PreToolUse",
-			PermissionDecision:       decision.Decision,
-			PermissionDecisionReason: "AI reviewer: " + decision.Reason,
-		},
-	}
-
-	resp, err := json.Marshal(output)
-	if err != nil {
-		slog.Error("json marshal error", "err", err)
+	// If AI says "allow", pass it through
+	if decision.Decision == "allow" {
+		s.writeAllow(conn, "AI reviewer: "+decision.Reason)
 		return
 	}
 
-	conn.Write(resp)
+	// AI says "ask" — show the native dialog instead of falling back to terminal
+	result, err := promptui.ShowApproval(input.ToolName, input.ToolInput, decision.Reason, input.CWD, ctx)
+	if err != nil {
+		slog.Error("dialog error", "err", err)
+		return
+	}
+
+	switch result.Decision {
+	case promptui.DecisionApprove:
+		slog.Info("user decided", "tool", input.ToolName, "decision", "allow")
+		s.writeAllow(conn, "user approved")
+	case promptui.DecisionDeny:
+		slog.Info("user decided", "tool", input.ToolName, "decision", "deny")
+		s.writeDecision(conn, "deny", "user denied")
+	case promptui.DecisionLater:
+		slog.Info("user decided", "tool", input.ToolName, "decision", "later")
+		s.writeDecision(conn, "ask", "deferred to terminal prompt")
+	}
 }
 
 func (s *Server) writeAllow(conn net.Conn, reason string) {
+	s.writeDecision(conn, "allow", reason)
+}
+
+func (s *Server) writeDecision(conn net.Conn, decision, reason string) {
 	output := HookOutput{
 		HookSpecificOutput: &HookSpecificOutput{
 			HookEventName:            "PreToolUse",
-			PermissionDecision:       "allow",
+			PermissionDecision:       decision,
 			PermissionDecisionReason: reason,
 		},
 	}

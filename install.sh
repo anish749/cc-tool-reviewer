@@ -29,10 +29,19 @@ trap 'rm -rf "${TMPDIR}"' EXIT
 echo "Downloading ${BINARY} ${VERSION} (${OS}/${ARCH})..."
 curl -sL "${URL}" -o "${TMPDIR}/${TARBALL}"
 
-echo "Installing to ${INSTALL_DIR}/${BINARY}..."
+echo "Installing to ${INSTALL_DIR}..."
 tar -xzf "${TMPDIR}/${TARBALL}" -C "${TMPDIR}"
 mkdir -p "${INSTALL_DIR}"
 mv "${TMPDIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
 chmod +x "${INSTALL_DIR}/${BINARY}"
 
-echo "Done. ${BINARY} ${VERSION} installed to ${INSTALL_DIR}/${BINARY}"
+# On macOS, compile the native approval dialog from source
+if [ "${OS}" = "darwin" ]; then
+  SWIFT_SRC_URL="https://raw.githubusercontent.com/anish749/cc-tool-reviewer/${VERSION}/promptui/swift/approval.swift"
+  echo "Compiling native macOS dialog..."
+  curl -sL "${SWIFT_SRC_URL}" -o "${TMPDIR}/approval.swift"
+  swiftc "${TMPDIR}/approval.swift" -o "${INSTALL_DIR}/approval-dialog"
+  chmod +x "${INSTALL_DIR}/approval-dialog"
+fi
+
+echo "Done. ${BINARY} ${VERSION} installed to ${INSTALL_DIR}"
