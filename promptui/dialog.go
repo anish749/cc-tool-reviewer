@@ -49,13 +49,11 @@ func ShowApproval(toolName string, toolInput json.RawMessage, aiReason string, c
 		calls = calls[len(calls)-5:]
 	}
 	for _, tc := range calls {
-		desc := tc.Description
-		if desc == "" {
-			desc = tc.Tool
+		if tc.Description != "" {
+			recent.WriteString("  · " + tc.Description + "\n")
 		} else {
-			desc = tc.Tool + " — " + desc
+			recent.WriteString("  · " + tc.Tool + "\n")
 		}
-		recent.WriteString("  · " + desc + "\n")
 	}
 
 	// Pack into the 4 args the Swift binary expects:
@@ -65,12 +63,18 @@ func ShowApproval(toolName string, toolInput json.RawMessage, aiReason string, c
 	// arg4: context block (user message + cwd + recent)
 	toolDisplay := toolName
 	if description != "" {
-		toolDisplay = toolName + " — " + description
+		toolDisplay = toolName + ": " + description
 	}
 
 	var userContext strings.Builder
-	if ctx.LastUserMessage != "" {
-		userContext.WriteString(ctx.LastUserMessage)
+	for i, msg := range ctx.RecentUserMessages {
+		if i > 0 {
+			userContext.WriteString("\n")
+		}
+		if len(msg) > 150 {
+			msg = msg[:150] + "..."
+		}
+		userContext.WriteString("> " + msg)
 	}
 	if recent.Len() > 0 {
 		if userContext.Len() > 0 {

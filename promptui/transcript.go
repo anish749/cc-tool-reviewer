@@ -17,14 +17,23 @@ type transcriptEntry struct {
 
 // Context holds conversation context extracted from the transcript.
 type Context struct {
-	LastUserMessage    string
+	RecentUserMessages []string
 	RecentToolCalls    []ToolCallSummary
+}
+
+// LastUserMessage returns the most recent user message, or empty string.
+func (c Context) LastUserMessage() string {
+	if len(c.RecentUserMessages) > 0 {
+		return c.RecentUserMessages[len(c.RecentUserMessages)-1]
+	}
+	return ""
 }
 
 // ToolCallSummary is a brief description of a recent tool call.
 type ToolCallSummary struct {
 	Tool        string
 	Description string
+	DedupKey    string
 }
 
 // ReadContext reads the transcript JSONL file and extracts the last user message
@@ -52,19 +61,23 @@ func ReadContext(transcriptPath string, maxToolCalls int) Context {
 		entries = append(entries, entry)
 	}
 
-	// Walk backwards to find the last user message (actual text, not tool_result)
-	for i := len(entries) - 1; i >= 0; i-- {
+	// Walk backwards to find the last 3 user messages (actual text, not tool_result)
+	for i := len(entries) - 1; i >= 0 && len(ctx.RecentUserMessages) < 3; i-- {
 		e := entries[i]
 		if e.Message.Role == "user" {
 			text := extractUserText(e.Message.Content)
 			if text != "" {
-				ctx.LastUserMessage = text
-				break
+				ctx.RecentUserMessages = append(ctx.RecentUserMessages, text)
 			}
 		}
 	}
+	// Reverse to chronological order
+	for i, j := 0, len(ctx.RecentUserMessages)-1; i < j; i, j = i+1, j-1 {
+		ctx.RecentUserMessages[i], ctx.RecentUserMessages[j] = ctx.RecentUserMessages[j], ctx.RecentUserMessages[i]
+	}
 
-	// Collect recent tool calls from assistant messages
+	// Collect recent tool calls from assistant messages, deduplicating
+	seen := make(map[string]bool)
 	for i := len(entries) - 1; i >= 0 && len(ctx.RecentToolCalls) < maxToolCalls; i-- {
 		e := entries[i]
 		if e.Message.Role != "assistant" {
@@ -72,6 +85,11 @@ func ReadContext(transcriptPath string, maxToolCalls int) Context {
 		}
 		calls := extractToolCalls(e.Message.Content)
 		for j := len(calls) - 1; j >= 0 && len(ctx.RecentToolCalls) < maxToolCalls; j-- {
+			key := calls[j].DedupKey
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
 			ctx.RecentToolCalls = append(ctx.RecentToolCalls, calls[j])
 		}
 	}
@@ -124,21 +142,22 @@ func extractToolCalls(content any) []ToolCallSummary {
 
 		name, _ := m["name"].(string)
 		desc := ""
+		dedupKey := name
 		if input, ok := m["input"].(map[string]any); ok {
-			if d, ok := input["description"].(string); ok {
+			if fp, ok := input["file_path"].(string); ok {
+				desc = fp
+				dedupKey = name + ":" + fp
+			} else if d, ok := input["description"].(string); ok {
 				desc = d
 			} else if cmd, ok := input["command"].(string); ok {
-				// Fallback: use the command itself, truncated
 				if len(cmd) > 60 {
 					cmd = cmd[:60] + "..."
 				}
 				desc = cmd
-			} else if fp, ok := input["file_path"].(string); ok {
-				desc = fp
 			}
 		}
 
-		calls = append(calls, ToolCallSummary{Tool: name, Description: desc})
+		calls = append(calls, ToolCallSummary{Tool: name, Description: desc, DedupKey: dedupKey})
 	}
 	return calls
 }
