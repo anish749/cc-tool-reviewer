@@ -140,34 +140,28 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 
-	finalDecision := "deny"
-	if result.Approved {
-		finalDecision = "allow"
+	switch result.Decision {
+	case promptui.DecisionApprove:
+		slog.Info("user decided", "tool", input.ToolName, "decision", "allow")
+		s.writeAllow(conn, "user approved")
+	case promptui.DecisionDeny:
+		slog.Info("user decided", "tool", input.ToolName, "decision", "deny")
+		s.writeDecision(conn, "deny", "user denied")
+	case promptui.DecisionLater:
+		slog.Info("user decided", "tool", input.ToolName, "decision", "later")
+		s.writeDecision(conn, "ask", "deferred to terminal prompt")
 	}
-	slog.Info("user decided", "tool", input.ToolName, "decision", finalDecision)
-
-	output := HookOutput{
-		HookSpecificOutput: &HookSpecificOutput{
-			HookEventName:            "PreToolUse",
-			PermissionDecision:       finalDecision,
-			PermissionDecisionReason: "user: " + finalDecision,
-		},
-	}
-
-	resp, err := json.Marshal(output)
-	if err != nil {
-		slog.Error("json marshal error", "err", err)
-		return
-	}
-
-	conn.Write(resp)
 }
 
 func (s *Server) writeAllow(conn net.Conn, reason string) {
+	s.writeDecision(conn, "allow", reason)
+}
+
+func (s *Server) writeDecision(conn net.Conn, decision, reason string) {
 	output := HookOutput{
 		HookSpecificOutput: &HookSpecificOutput{
 			HookEventName:            "PreToolUse",
-			PermissionDecision:       "allow",
+			PermissionDecision:       decision,
 			PermissionDecisionReason: reason,
 		},
 	}

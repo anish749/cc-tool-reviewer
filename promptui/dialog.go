@@ -11,12 +11,22 @@ import (
 )
 
 // ApprovalResult is the outcome of a tool approval dialog.
+// Decision represents the user's choice in an approval dialog.
+type Decision int
+
+const (
+	DecisionApprove Decision = iota
+	DecisionDeny
+	DecisionLater // defer to Claude Code's terminal prompt
+)
+
 type ApprovalResult struct {
-	Approved bool
+	Decision Decision
 }
 
 // ShowApproval shows a native macOS dialog for approving/denying a tool call.
 // It displays the tool name, command details, AI reason, and conversation context.
+// "Later" defers the decision to Claude Code's normal terminal prompt.
 func ShowApproval(toolName string, toolInput json.RawMessage, aiReason string, ctx Context) (ApprovalResult, error) {
 	command := extractCommandSummary(toolName, toolInput)
 
@@ -36,17 +46,25 @@ func ShowApproval(toolName string, toolInput json.RawMessage, aiReason string, c
 	}
 
 	script := fmt.Sprintf(
-		`display dialog %s with title "cc-tool-reviewer" buttons {"Deny", "Approve"} default button "Approve"`,
+		`display dialog %s with title "cc-tool-reviewer" buttons {"Deny", "Later", "Approve"} default button "Approve"`,
 		quoteAppleScript(body.String()),
 	)
 
 	out, err := exec.Command("osascript", "-e", script).CombinedOutput()
 	slog.Info("approval dialog", "output", strings.TrimSpace(string(out)), "err", err)
 	if err != nil {
-		return ApprovalResult{Approved: false}, nil
+		return ApprovalResult{Decision: DecisionLater}, nil
 	}
 
-	return ApprovalResult{Approved: strings.Contains(string(out), "Approve")}, nil
+	outStr := string(out)
+	switch {
+	case strings.Contains(outStr, "Approve"):
+		return ApprovalResult{Decision: DecisionApprove}, nil
+	case strings.Contains(outStr, "Deny"):
+		return ApprovalResult{Decision: DecisionDeny}, nil
+	default:
+		return ApprovalResult{Decision: DecisionLater}, nil
+	}
 }
 
 // AskQuestionResult is the outcome of an AskUserQuestion dialog.

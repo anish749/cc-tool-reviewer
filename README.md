@@ -81,7 +81,7 @@ Add to `~/.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "nc -w 5 -U /tmp/cc-tool-reviewer.sock"
+            "command": "nc -U /tmp/cc-tool-reviewer.sock"
           }
         ]
       }
@@ -126,6 +126,20 @@ Settings are loaded from:
 - Otherwise ("ask zone") → calls Haiku 4.5 with your allow list as context
 
 The AI never denies — it either allows or defers to you.
+
+### Native macOS dialogs (ask zone)
+
+When the AI reviewer says "ask", a native macOS dialog pops up via `osascript` instead of falling back to Claude Code's terminal prompt. The dialog shows:
+- What the user asked (from the conversation transcript)
+- The tool name and command
+- The AI's reason for flagging it
+
+Three buttons:
+- **Approve** — allows the tool call
+- **Deny** — blocks the tool call
+- **Later** — defers to Claude Code's terminal prompt (useful when you're busy and want to come back to it)
+
+Since the dialog can take time for user interaction, the `nc` command in the hook config should **not** have a `-w` timeout — otherwise `nc` may close the connection before you click. Use `nc -U /tmp/cc-tool-reviewer.sock` without `-w`.
 
 ### Compound command detection
 
