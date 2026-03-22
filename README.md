@@ -2,7 +2,7 @@
 
 A fast, daemon-based AI reviewer for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) tool calls. Reduces permission prompts by using Haiku 4.5 to evaluate commands that don't match your explicit allow/deny rules but are still consistent with what you've permitted.
 
-On macOS, shows a translucent floating HUD for approve/deny decisions instead of Claude Code's terminal prompt.
+On macOS, shows a translucent floating HUD for approve/deny decisions. This is designed for workflows with multiple background agents running. You can be working on something else and quickly glance at the HUD to approve (Cmd+Enter), deny, or defer (Esc) without switching to a terminal.
 
 <p align="center">
   <a href="#the-problem">The problem</a> &bull;
@@ -106,9 +106,12 @@ Settings are hot-reloaded. No need to restart the daemon when you change your al
 - Recent user messages and tool call history
 - The command and AI's reason for flagging it
 - A feedback text field (sent back to Claude as context when denying)
-- Three buttons: **Approve** (Cmd+Enter), **Deny**, **Later** (Esc)
+- Three buttons:
+  - **Approve** (Cmd+Enter) — allow the tool call
+  - **Deny** — block it, with optional feedback text sent back to Claude
+  - **Later** (Esc) — defer to Claude Code's terminal prompt
 
-On non-macOS systems, "ask" falls through to Claude Code's terminal prompt.
+Keyboard shortcuts let you approve or dismiss without reaching for the mouse. On non-macOS systems, "ask" falls through to Claude Code's terminal prompt.
 
 ### Compound command detection
 
