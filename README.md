@@ -1,9 +1,5 @@
 # cc-tool-reviewer
 
-A fast, daemon-based AI reviewer for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) tool calls. Reduces permission prompts by using Haiku 4.5 to evaluate commands that don't match your explicit allow/deny rules but are still consistent with what you've permitted.
-
-On macOS, shows a translucent floating HUD for approve/deny decisions. This is designed for workflows with multiple background agents running. You can be working on something else and quickly glance at the HUD to approve (Cmd+Enter), deny, or defer (Esc) without switching to a terminal.
-
 <p align="center">
   <a href="#the-problem">The problem</a> &bull;
   <a href="#getting-started">Getting started</a> &bull;
@@ -12,6 +8,10 @@ On macOS, shows a translucent floating HUD for approve/deny decisions. This is d
   <a href="#performance">Performance</a> &bull;
   <a href="#build-from-source">Build from source</a>
 </p>
+
+A fast, daemon-based AI reviewer for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) tool calls. Reduces permission prompts by using Haiku 4.5 to evaluate commands that don't match your explicit allow/deny rules but are still consistent with what you've permitted.
+
+On macOS, shows a translucent floating HUD for approve/deny decisions. Designed for workflows with multiple background agents running — glance at the HUD and approve (Cmd+Enter), deny, or defer (Esc) without switching to a terminal.
 
 ---
 
