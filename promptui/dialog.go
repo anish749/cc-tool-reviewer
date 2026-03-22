@@ -67,15 +67,35 @@ func ShowApproval(toolName string, toolInput json.RawMessage, aiReason string, c
 	}
 
 	var userContext strings.Builder
-	for i, msg := range ctx.RecentUserMessages {
-		if i > 0 {
-			userContext.WriteString("\n")
+
+	// Session title or first message as the topic
+	if ctx.SessionTitle != "" {
+		userContext.WriteString("Session: " + ctx.SessionTitle)
+	} else if ctx.FirstUserMessage != "" {
+		first := ctx.FirstUserMessage
+		if len(first) > 100 {
+			first = first[:100] + "..."
 		}
-		if len(msg) > 150 {
-			msg = msg[:150] + "..."
-		}
-		userContext.WriteString("> " + msg)
+		userContext.WriteString(first)
 	}
+
+	// Recent user messages
+	if len(ctx.RecentUserMessages) > 0 {
+		if userContext.Len() > 0 {
+			userContext.WriteString("\n---\n")
+		}
+		for i, msg := range ctx.RecentUserMessages {
+			if i > 0 {
+				userContext.WriteString("\n")
+			}
+			if len(msg) > 150 {
+				msg = msg[:150] + "..."
+			}
+			userContext.WriteString("> " + msg)
+		}
+	}
+
+	// Recent tool calls
 	if recent.Len() > 0 {
 		if userContext.Len() > 0 {
 			userContext.WriteString("\n\n")

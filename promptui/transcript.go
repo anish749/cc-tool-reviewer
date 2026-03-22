@@ -9,7 +9,9 @@ import (
 
 // transcriptEntry represents a single entry from the JSONL transcript.
 type transcriptEntry struct {
-	Message struct {
+	Type        string `json:"type"`
+	CustomTitle string `json:"customTitle"`
+	Message     struct {
 		Role    string `json:"role"`
 		Content any    `json:"content"`
 	} `json:"message"`
@@ -17,7 +19,9 @@ type transcriptEntry struct {
 
 // Context holds conversation context extracted from the transcript.
 type Context struct {
-	RecentUserMessages []string
+	SessionTitle       string   // custom-title if set
+	FirstUserMessage   string   // the very first user message in the conversation
+	RecentUserMessages []string // last 3 user messages
 	RecentToolCalls    []ToolCallSummary
 }
 
@@ -59,6 +63,19 @@ func ReadContext(transcriptPath string, maxToolCalls int) Context {
 			continue
 		}
 		entries = append(entries, entry)
+	}
+
+	// Forward scan: extract session title and first user message
+	for _, e := range entries {
+		if e.Type == "custom-title" && e.CustomTitle != "" {
+			ctx.SessionTitle = e.CustomTitle
+		}
+		if ctx.FirstUserMessage == "" && e.Message.Role == "user" {
+			text := extractUserText(e.Message.Content)
+			if text != "" {
+				ctx.FirstUserMessage = text
+			}
+		}
 	}
 
 	// Walk backwards to find the last 3 user messages (actual text, not tool_result)
