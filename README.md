@@ -115,7 +115,11 @@ The daemon should be started outside of Claude Code (e.g., from a shell alias or
 
 ### Environment
 
-The daemon needs access to the Anthropic API. It uses the standard `ANTHROPIC_API_KEY` environment variable, or inherits `ANTHROPIC_BASE_URL` if set (e.g., when started alongside a Claude Code session).
+The daemon needs access to the Anthropic API. There are three ways to provide credentials:
+
+1. **`ANTHROPIC_API_KEY`** — set your API key directly
+2. **`ANTHROPIC_BASE_URL`** — inherit from a running Claude Code session (e.g., `http://localhost:1992`)
+3. **Claude Code OAuth token** — run `claude setup-token` to get a token, then set it as `ANTHROPIC_API_KEY`. This lets the daemon run independently without a separate API key or a running Claude Code session.
 
 Settings are loaded from (and hot-reloaded on change):
 - `$CLAUDE_CONFIG_DIR/settings.json` (falls back to `~/.claude/settings.json`)
