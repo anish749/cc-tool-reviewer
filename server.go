@@ -64,6 +64,12 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 
+	// Tools that are always allowed — no matching or AI needed
+	if AlwaysAllow(input.ToolName) {
+		s.writeAllow(conn, "auto-allowed tool type")
+		return
+	}
+
 	// Matched by allow or deny rules → empty response (let Claude Code handle it)
 	if MatchesAny(input.ToolName, input.ToolInput, s.allow) {
 		return
@@ -96,5 +102,17 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 
+	conn.Write(resp)
+}
+
+func (s *Server) writeAllow(conn net.Conn, reason string) {
+	output := HookOutput{
+		HookSpecificOutput: &HookSpecificOutput{
+			HookEventName:            "PreToolUse",
+			PermissionDecision:       "allow",
+			PermissionDecisionReason: reason,
+		},
+	}
+	resp, _ := json.Marshal(output)
 	conn.Write(resp)
 }
