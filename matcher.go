@@ -119,16 +119,6 @@ func expandTilde(path string) string {
 	return path
 }
 
-// AlwaysAllow returns true for tool types that should be auto-approved without
-// any matching or AI review.
-func AlwaysAllow(toolName string) bool {
-	switch toolName {
-	case "WebFetch", "WebSearch":
-		return true
-	}
-	return false
-}
-
 // isCompoundCommand checks if a bash command is compound (multi-line, chained,
 // backgrounded, uses subshells, etc.) and shouldn't be matched by simple prefix rules.
 func isCompoundCommand(cmd string) bool {

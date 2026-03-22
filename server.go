@@ -65,7 +65,7 @@ func (s *Server) handle(conn net.Conn) {
 	}
 
 	// Tools that are always allowed — no matching or AI needed
-	if AlwaysAllow(input.ToolName) {
+	if AutoAllow(input.ToolName, input.ToolInput) {
 		s.writeAllow(conn, "auto-allowed tool type")
 		return
 	}

@@ -31,12 +31,15 @@ The key difference: the built-in prompt hook calls the API on every matching too
 Claude Code ──stdin──▶ nc -U /tmp/cc-tool-reviewer.sock ──▶ Go daemon
                                                                │
                                                     ┌──────────┴──────────┐
-                                                    │ 1. Local match      │
+                                                    │ 1. Auto-allow?      │
+                                                    │    (WebFetch,       │
+                                                    │     WebSearch)      │
+                                                    │         ↓ no        │
+                                                    │ 2. Local match      │
                                                     │    against allow/   │
                                                     │    deny rules       │
-                                                    │                     │
-                                                    │ 2. If "ask zone":  │
-                                                    │    Call Haiku 4.5   │
+                                                    │         ↓ no match  │
+                                                    │ 3. Call Haiku 4.5   │
                                                     │    via persistent   │
                                                     │    HTTP/2 conn      │
                                                     └──────────┬──────────┘
@@ -74,7 +77,7 @@ Add to `~/.claude/settings.json`:
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "",
+        "matcher": "Bash|WebFetch|WebSearch",
         "hooks": [
           {
             "type": "command",
@@ -113,11 +116,16 @@ Settings are loaded from:
 
 1. Claude Code fires the `PreToolUse` hook, piping JSON to `nc`
 2. `nc` forwards it to the daemon via Unix socket (~4ms overhead)
-3. The daemon checks the command against your allow/deny rules locally
-4. If it matches an allow or deny rule → empty response (Claude Code handles it normally)
-5. If it's in the "ask zone" → calls Haiku 4.5 with your allow list as context
-6. Haiku decides: **allow** (skip the prompt) or **ask** (show the prompt as usual)
-7. The AI never denies — it either allows or defers to you
+3. The daemon decides what to do based on the tool type:
+
+**Auto-allowed tools** — `WebFetch` and `WebSearch` are always approved instantly with no matching or AI call. The daemon logs the URL/query for visibility.
+
+**Bash commands** — checked against your allow/deny rules locally:
+- If it matches an allow or deny rule → empty response (Claude Code handles it normally)
+- If it's a compound command (`&&`, `||`, `;`, multi-line, subshells) → always sent to the AI, since simple prefix matching can't evaluate these
+- Otherwise ("ask zone") → calls Haiku 4.5 with your allow list as context
+
+The AI never denies — it either allows or defers to you.
 
 ### Compound command detection
 
@@ -135,6 +143,7 @@ If the daemon isn't running, `nc` fails with a non-zero exit code (but not exit 
 
 | Scenario | Latency |
 |----------|---------|
+| Auto-allowed (WebFetch, WebSearch) | ~4ms (`nc` overhead) |
 | Local match (allow/deny rule) | ~4ms (`nc` overhead) |
 | API call (cold connection) | ~1000ms |
 | API call (warm connection) | ~700ms |
