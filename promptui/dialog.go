@@ -42,38 +42,45 @@ func ShowApproval(toolName string, toolInput json.RawMessage, aiReason string, c
 	command := extractCommandSummary(toolName, toolInput)
 	description := extractDescription(toolInput)
 
-	// Build a rich user message with all context
-	var userMsg strings.Builder
-	if ctx.LastUserMessage != "" {
-		userMsg.WriteString(ctx.LastUserMessage)
+	// Build recent tool calls as separate lines
+	var recent strings.Builder
+	calls := ctx.RecentToolCalls
+	if len(calls) > 5 {
+		calls = calls[len(calls)-5:]
 	}
-	if cwd != "" {
-		if userMsg.Len() > 0 {
-			userMsg.WriteString("\n\n")
+	for _, tc := range calls {
+		desc := tc.Description
+		if desc == "" {
+			desc = tc.Tool
+		} else {
+			desc = tc.Tool + " — " + desc
 		}
-		userMsg.WriteString("📁 " + cwd)
-	}
-	if len(ctx.RecentToolCalls) > 0 {
-		if userMsg.Len() > 0 {
-			userMsg.WriteString("\n\n")
-		}
-		userMsg.WriteString("Recent: ")
-		for i, tc := range ctx.RecentToolCalls {
-			if i > 0 {
-				userMsg.WriteString(" → ")
-			}
-			if tc.Description != "" {
-				userMsg.WriteString(tc.Description)
-			} else {
-				userMsg.WriteString(tc.Tool)
-			}
-		}
+		recent.WriteString("  · " + desc + "\n")
 	}
 
-	// If there's a description, prepend it to the tool name
+	// Pack into the 4 args the Swift binary expects:
+	// arg1: tool (with description)
+	// arg2: command
+	// arg3: ai reason
+	// arg4: context block (user message + cwd + recent)
 	toolDisplay := toolName
 	if description != "" {
 		toolDisplay = toolName + " — " + description
+	}
+
+	var context strings.Builder
+	if cwd != "" {
+		context.WriteString("📁 " + cwd + "\n\n")
+	}
+	if ctx.LastUserMessage != "" {
+		context.WriteString(ctx.LastUserMessage)
+	}
+	if recent.Len() > 0 {
+		if context.Len() > 0 {
+			context.WriteString("\n\n")
+		}
+		context.WriteString("Recent:\n")
+		context.WriteString(recent.String())
 	}
 
 	out, err := exec.Command(
@@ -81,7 +88,7 @@ func ShowApproval(toolName string, toolInput json.RawMessage, aiReason string, c
 		toolDisplay,
 		truncate(command, 500),
 		aiReason,
-		userMsg.String(),
+		context.String(),
 	).CombinedOutput()
 
 	output := strings.TrimSpace(string(out))
