@@ -109,7 +109,8 @@ func (s *Server) handle(conn net.Conn) {
 	// "Ask zone" — consult the AI reviewer
 	decision, err := reviewer.Review(input.ToolName, input.ToolInput)
 	if err != nil {
-		slog.Error("reviewer error", "err", err)
+		slog.Error("reviewer failed, deferring to terminal", "tool", input.ToolName, "err", err)
+		s.writeResponse(conn, "ask", "reviewer error: "+err.Error(), "")
 		return
 	}
 
@@ -124,7 +125,8 @@ func (s *Server) handle(conn net.Conn) {
 	// AI says "ask" — show the native dialog instead of falling back to terminal
 	result, err := promptui.ShowApproval(input.ToolName, input.ToolInput, decision.Reason, input.CWD, ctx)
 	if err != nil {
-		slog.Error("dialog error", "err", err)
+		slog.Error("dialog failed, deferring to terminal", "tool", input.ToolName, "err", err)
+		s.writeResponse(conn, "ask", "dialog error: "+err.Error(), "")
 		return
 	}
 

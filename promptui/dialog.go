@@ -4,6 +4,7 @@ package promptui
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -29,7 +30,7 @@ type ApprovalResult struct {
 var UseLegacyUI bool
 
 // dialogBinary returns the path to the compiled Swift approval dialog binary.
-func dialogBinary() string {
+func dialogBinary() (string, error) {
 	name := "approval-dialog"
 	if UseLegacyUI {
 		name = "approval-dialog-legacy"
@@ -37,10 +38,15 @@ func dialogBinary() string {
 	if exe, err := os.Executable(); err == nil {
 		candidate := filepath.Join(filepath.Dir(exe), name)
 		if _, err := os.Stat(candidate); err == nil {
-			return candidate
+			slog.Debug("dialog binary found", "path", candidate)
+			return candidate, nil
 		}
 	}
-	return name
+	// Check if it's on PATH
+	if path, err := exec.LookPath(name); err == nil {
+		return path, nil
+	}
+	return "", fmt.Errorf("dialog binary %q not found next to executable or on PATH", name)
 }
 
 // ShowApproval shows a native macOS translucent HUD dialog for approving/denying a tool call.
@@ -111,8 +117,13 @@ func ShowApproval(toolName string, toolInput json.RawMessage, aiReason string, c
 		userContext.WriteString(recent.String())
 	}
 
+	bin, err := dialogBinary()
+	if err != nil {
+		return ApprovalResult{Decision: DecisionLater}, fmt.Errorf("dialog binary: %w", err)
+	}
+
 	out, err := exec.Command(
-		dialogBinary(),
+		bin,
 		toolDisplay,
 		truncate(command, 500),
 		aiReason,
@@ -121,10 +132,10 @@ func ShowApproval(toolName string, toolInput json.RawMessage, aiReason string, c
 	).CombinedOutput()
 
 	output := strings.TrimSpace(string(out))
-	slog.Info("approval dialog", "output", output, "err", err)
+	slog.Info("approval dialog", "binary", bin, "output", output, "exitErr", err)
 
 	if err != nil {
-		return ApprovalResult{Decision: DecisionLater}, nil
+		return ApprovalResult{Decision: DecisionLater}, fmt.Errorf("dialog exec failed: %w (output: %s)", err, output)
 	}
 
 	// Output format: "decision\nfeedback" (feedback is optional)
