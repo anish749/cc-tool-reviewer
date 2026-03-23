@@ -98,13 +98,9 @@ func (s *Server) handle(conn net.Conn) {
 	s.mu.RUnlock()
 
 	// Merge project-level rules from cache (loaded on miss, invalidated by fsnotify)
-	allow := globalAllow
-	deny := globalDeny
-	if s.projCache != nil {
-		proj := s.projCache.Get(input.CWD)
-		allow = append(allow, proj.Allow...)
-		deny = append(deny, proj.Deny...)
-	}
+	proj := s.projCache.Get(input.CWD)
+	allow := append(globalAllow, proj.Allow...)
+	deny := append(globalDeny, proj.Deny...)
 
 	// Matched by allow or deny rules → empty response (let Claude Code handle it)
 	if MatchesAny(input.ToolName, input.ToolInput, allow) {

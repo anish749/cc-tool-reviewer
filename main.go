@@ -48,11 +48,9 @@ func main() {
 
 	projCache, err := NewProjectCache(5 * time.Hour)
 	if err != nil {
-		slog.Warn("project cache failed to start", "err", err)
+		log.Fatalf("project cache: %v", err)
 	}
-	if projCache != nil {
-		defer projCache.Stop()
-	}
+	defer projCache.Stop()
 
 	server := NewServer(listener, allow, deny, reviewer, projCache)
 	go server.Serve()
