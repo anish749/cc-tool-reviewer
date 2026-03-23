@@ -17,6 +17,11 @@ type ProjectRules struct {
 	RawAllow []string
 }
 
+// ProjectRulesProvider loads project-level rules for a given working directory.
+type ProjectRulesProvider interface {
+	Get(cwd string) ProjectRules
+}
+
 // ProjectCache caches project-level settings with TTL and fsnotify invalidation.
 type ProjectCache struct {
 	cache   *ttlcache.Cache[string, ProjectRules]

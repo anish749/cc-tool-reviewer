@@ -36,16 +36,16 @@ type Server struct {
 	allow     []Rule
 	deny      []Rule
 	reviewer  *Reviewer
-	projCache *ProjectCache
+	projRules ProjectRulesProvider
 }
 
-func NewServer(listener net.Listener, allow, deny []Rule, reviewer *Reviewer, projCache *ProjectCache) *Server {
+func NewServer(listener net.Listener, allow, deny []Rule, reviewer *Reviewer, projRules ProjectRulesProvider) *Server {
 	return &Server{
 		listener:  listener,
 		allow:     allow,
 		deny:      deny,
 		reviewer:  reviewer,
-		projCache: projCache,
+		projRules: projRules,
 	}
 }
 
@@ -98,7 +98,7 @@ func (s *Server) handle(conn net.Conn) {
 	s.mu.RUnlock()
 
 	// Merge project-level rules from cache (loaded on miss, invalidated by fsnotify)
-	proj := s.projCache.Get(input.CWD)
+	proj := s.projRules.Get(input.CWD)
 	allow := append(globalAllow, proj.Allow...)
 	deny := append(globalDeny, proj.Deny...)
 
