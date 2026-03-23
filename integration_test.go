@@ -11,6 +11,11 @@ import (
 	"time"
 )
 
+// noopProjectRules returns empty rules for all projects (used in tests).
+type noopProjectRules struct{}
+
+func (noopProjectRules) Get(cwd string) ProjectRules { return ProjectRules{} }
+
 func sendRequest(t *testing.T, socketPath string, toolName string, toolInput any) (string, time.Duration) {
 	t.Helper()
 
@@ -65,7 +70,7 @@ func startTestServer(t *testing.T) string {
 		t.Fatalf("listen: %v", err)
 	}
 
-	server := NewServer(listener, allow, deny, reviewer)
+	server := NewServer(listener, allow, deny, reviewer, noopProjectRules{})
 	go server.Serve()
 
 	t.Cleanup(func() {

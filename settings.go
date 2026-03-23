@@ -23,16 +23,33 @@ func claudeConfigDir() string {
 	return filepath.Join(home, ".claude")
 }
 
+// LoadRules loads global allow/deny rules from the Claude config directory.
 func LoadRules() (allow, deny []Rule, rawAllow []string) {
 	configDir := claudeConfigDir()
 
 	paths := []string{
 		filepath.Join(configDir, "settings.json"),
 		filepath.Join(configDir, "settings.local.json"),
-		".claude/settings.json",
-		".claude/settings.local.json",
 	}
 
+	return loadFromPaths(paths)
+}
+
+// LoadProjectRules loads project-level allow/deny rules from the given working directory.
+func LoadProjectRules(cwd string) (allow, deny []Rule, rawAllow []string) {
+	if cwd == "" {
+		return
+	}
+
+	paths := []string{
+		filepath.Join(cwd, ".claude", "settings.json"),
+		filepath.Join(cwd, ".claude", "settings.local.json"),
+	}
+
+	return loadFromPaths(paths)
+}
+
+func loadFromPaths(paths []string) (allow, deny []Rule, rawAllow []string) {
 	seen := make(map[string]bool)
 	for _, p := range paths {
 		data, err := os.ReadFile(p)

@@ -46,7 +46,13 @@ func main() {
 
 	slog.Info("listening", "socket", *socketPath)
 
-	server := NewServer(listener, allow, deny, reviewer)
+	projCache, err := NewProjectCache(5 * time.Hour)
+	if err != nil {
+		log.Fatalf("project cache: %v", err)
+	}
+	defer projCache.Stop()
+
+	server := NewServer(listener, allow, deny, reviewer, projCache)
 	go server.Serve()
 
 	// Watch config directory for settings changes

@@ -31,19 +31,21 @@ type HookSpecificOutput struct {
 }
 
 type Server struct {
-	listener net.Listener
-	mu       sync.RWMutex
-	allow    []Rule
-	deny     []Rule
-	reviewer *Reviewer
+	listener  net.Listener
+	mu        sync.RWMutex
+	allow     []Rule
+	deny      []Rule
+	reviewer  *Reviewer
+	projRules ProjectRulesProvider
 }
 
-func NewServer(listener net.Listener, allow, deny []Rule, reviewer *Reviewer) *Server {
+func NewServer(listener net.Listener, allow, deny []Rule, reviewer *Reviewer, projRules ProjectRulesProvider) *Server {
 	return &Server{
-		listener: listener,
-		allow:    allow,
-		deny:     deny,
-		reviewer: reviewer,
+		listener:  listener,
+		allow:     allow,
+		deny:      deny,
+		reviewer:  reviewer,
+		projRules: projRules,
 	}
 }
 
@@ -90,10 +92,15 @@ func (s *Server) handle(conn net.Conn) {
 	}
 
 	s.mu.RLock()
-	allow := s.allow
-	deny := s.deny
+	globalAllow := s.allow
+	globalDeny := s.deny
 	reviewer := s.reviewer
 	s.mu.RUnlock()
+
+	// Merge project-level rules from cache (loaded on miss, invalidated by fsnotify)
+	proj := s.projRules.Get(input.CWD)
+	allow := append(globalAllow, proj.Allow...)
+	deny := append(globalDeny, proj.Deny...)
 
 	// Matched by allow or deny rules → empty response (let Claude Code handle it)
 	if MatchesAny(input.ToolName, input.ToolInput, allow) {
