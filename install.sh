@@ -35,13 +35,20 @@ mkdir -p "${INSTALL_DIR}"
 mv "${TMPDIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
 chmod +x "${INSTALL_DIR}/${BINARY}"
 
-# On macOS, compile the native approval dialog from source
+# On macOS, build the SwiftUI approval dialog from source
 if [ "${OS}" = "darwin" ]; then
-  SWIFT_SRC_URL="https://raw.githubusercontent.com/anish749/cc-tool-reviewer/${VERSION}/promptui/swift/approval.swift"
   echo "Compiling native macOS dialog..."
-  curl -sL "${SWIFT_SRC_URL}" -o "${TMPDIR}/approval.swift"
-  swiftc "${TMPDIR}/approval.swift" -o "${INSTALL_DIR}/approval-dialog"
+  DIALOG_DIR="${TMPDIR}/dialog-src"
+  mkdir -p "${DIALOG_DIR}"
+  curl -sL "https://github.com/${REPO}/archive/refs/tags/${VERSION}.tar.gz" -o "${TMPDIR}/src.tar.gz"
+  tar -xzf "${TMPDIR}/src.tar.gz" -C "${DIALOG_DIR}" --strip-components=1
+  cd "${DIALOG_DIR}/approval-dialog" && swift build -c release --quiet
+  cp "${DIALOG_DIR}/approval-dialog/.build/release/approval-dialog" "${INSTALL_DIR}/approval-dialog"
   chmod +x "${INSTALL_DIR}/approval-dialog"
+
+  # Also compile legacy dialog
+  swiftc "${DIALOG_DIR}/promptui/swift/approval.swift" -o "${INSTALL_DIR}/approval-dialog-legacy"
+  chmod +x "${INSTALL_DIR}/approval-dialog-legacy"
 fi
 
 echo "Done. ${BINARY} ${VERSION} installed to ${INSTALL_DIR}"
