@@ -7,7 +7,9 @@ INSTALL_DIR ?= $(HOME)/.local/bin
 build:
 	go build -ldflags="-s -w" -o bin/cc-tool-reviewer .
 ifeq ($(shell uname -s),Darwin)
-	swiftc promptui/swift/approval.swift -o bin/approval-dialog
+	cd approval-dialog && swift build -c release
+	cp approval-dialog/.build/release/approval-dialog bin/approval-dialog
+	swiftc promptui/swift/approval.swift -o bin/approval-dialog-legacy
 endif
 
 install: build
@@ -15,7 +17,9 @@ install: build
 	cp bin/cc-tool-reviewer $(INSTALL_DIR)/cc-tool-reviewer
 ifeq ($(shell uname -s),Darwin)
 	cp bin/approval-dialog $(INSTALL_DIR)/approval-dialog
+	cp bin/approval-dialog-legacy $(INSTALL_DIR)/approval-dialog-legacy
 endif
 
 clean:
 	rm -rf bin/
+	cd approval-dialog && swift package clean
