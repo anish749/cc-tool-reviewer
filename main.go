@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anish/cc-tool-reviewer/configwatcher"
+	"github.com/anish/cc-tool-reviewer/promptui"
 	"github.com/lmittmann/tint"
 )
 
@@ -19,6 +20,7 @@ const DefaultSocketPath = "/tmp/cc-tool-reviewer.sock"
 
 func main() {
 	socketPath := flag.String("socket", DefaultSocketPath, "Unix socket path")
+	legacyUI := flag.Bool("legacy-ui", false, "use the legacy AppKit dialog instead of SwiftUI")
 	flag.Parse()
 
 	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{
@@ -27,6 +29,8 @@ func main() {
 
 	// Always remove stale socket before starting
 	os.Remove(*socketPath)
+
+	promptui.UseLegacyUI = *legacyUI
 
 	allow, deny, rawAllow := LoadRules()
 	slog.Info("loaded rules", "allow", len(allow), "deny", len(deny))

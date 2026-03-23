@@ -25,15 +25,22 @@ type ApprovalResult struct {
 	Feedback string // optional user feedback text
 }
 
+// UseLegacyUI switches to the old AppKit dialog when set to true.
+var UseLegacyUI bool
+
 // dialogBinary returns the path to the compiled Swift approval dialog binary.
 func dialogBinary() string {
+	name := "approval-dialog"
+	if UseLegacyUI {
+		name = "approval-dialog-legacy"
+	}
 	if exe, err := os.Executable(); err == nil {
-		candidate := filepath.Join(filepath.Dir(exe), "approval-dialog")
+		candidate := filepath.Join(filepath.Dir(exe), name)
 		if _, err := os.Stat(candidate); err == nil {
 			return candidate
 		}
 	}
-	return "approval-dialog"
+	return name
 }
 
 // ShowApproval shows a native macOS translucent HUD dialog for approving/denying a tool call.

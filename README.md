@@ -82,6 +82,12 @@ cc-tool-reviewer --socket /tmp/my-reviewer.sock
 
 Start the daemon outside of Claude Code (e.g., from a shell alias or launch script), since the hook would interfere with starting it from within a Claude Code session.
 
+To use the legacy AppKit dialog instead of the default SwiftUI one:
+
+```bash
+cc-tool-reviewer --legacy-ui
+```
+
 Settings are hot-reloaded. No need to restart the daemon when you change your allow/deny rules.
 
 ---
@@ -190,4 +196,4 @@ cd cc-tool-reviewer
 make install
 ```
 
-The Makefile builds the Go daemon and the Swift dialog (on macOS) from source and installs both to `~/.local/bin/`.
+The Makefile builds the Go daemon, the SwiftUI dialog, and the legacy AppKit dialog (on macOS) from source and installs all to `~/.local/bin/`. Requires Swift 5.9+ and Xcode command line tools on macOS.
