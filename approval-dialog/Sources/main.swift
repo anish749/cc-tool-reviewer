@@ -71,7 +71,7 @@ panel.orderFrontRegardless()
 // =============================================================================
 
 NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
-    if event.modifierFlags.contains(.command) && event.keyCode == 36 {
+    if event.modifierFlags.contains(.command) && (event.keyCode == 36 || event.keyCode == 76) {
         state.result = .approve; NSApp.stop(nil)
     }
     if event.keyCode == 53 {
@@ -80,7 +80,7 @@ NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
 }
 
 NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-    if event.modifierFlags.contains(.command) && event.keyCode == 36 {
+    if event.modifierFlags.contains(.command) && (event.keyCode == 36 || event.keyCode == 76) {
         state.result = .approve; NSApp.stop(nil)
         return nil
     }
