@@ -411,3 +411,81 @@ func TestMatchesAll_EmptyCommand(t *testing.T) {
 		t.Error("empty command should NOT match any allow list")
 	}
 }
+
+// TestDenyBeforeAllow verifies that deny rules take precedence over allow
+// rules. The server checks deny first (server.go), so a specific deny like
+// "git reset *" blocks even when a broad allow like "git:*" also matches.
+//
+// This test exercises the matcher functions that the server relies on to
+// enforce that ordering.
+func TestDenyBeforeAllow(t *testing.T) {
+	allow := []Rule{{Tool: "Bash", Pattern: "git:*"}}
+	deny := []Rule{{Tool: "Bash", Pattern: "git reset *"}}
+
+	tests := []struct {
+		name       string
+		cmd        string
+		wantDeny   bool // MatchesAny(deny) — checked first by server
+		wantAllow  bool // MatchesAll(allow) — checked second, skipped if denied
+		wantResult string
+	}{
+		{
+			name:       "allowed and not denied → locally allowed",
+			cmd:        "git status",
+			wantDeny:   false,
+			wantAllow:  true,
+			wantResult: "allow",
+		},
+		{
+			name:       "denied even though allow also matches → locally denied",
+			cmd:        "git reset --hard HEAD",
+			wantDeny:   true,
+			wantAllow:  true, // would match, but server never checks because deny came first
+			wantResult: "deny",
+		},
+		{
+			name:       "compound: one part denied → locally denied",
+			cmd:        "git add . && git reset --hard",
+			wantDeny:   true,
+			wantAllow:  true,
+			wantResult: "deny",
+		},
+		{
+			name:       "neither denied nor allowed → sent to AI",
+			cmd:        "docker build .",
+			wantDeny:   false,
+			wantAllow:  false,
+			wantResult: "ai",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			input := bashInput(tc.cmd)
+
+			denied := MatchesAny("Bash", input, deny)
+			allowed := MatchesAll("Bash", input, allow)
+
+			if denied != tc.wantDeny {
+				t.Errorf("MatchesAny(deny) = %v, want %v", denied, tc.wantDeny)
+			}
+			if allowed != tc.wantAllow {
+				t.Errorf("MatchesAll(allow) = %v, want %v", allowed, tc.wantAllow)
+			}
+
+			// Replicate the server's decision logic (server.go:105-111):
+			// deny is checked first; if it matches, allow is never evaluated.
+			var result string
+			if denied {
+				result = "deny"
+			} else if allowed {
+				result = "allow"
+			} else {
+				result = "ai"
+			}
+			if result != tc.wantResult {
+				t.Errorf("server decision = %q, want %q", result, tc.wantResult)
+			}
+		})
+	}
+}
