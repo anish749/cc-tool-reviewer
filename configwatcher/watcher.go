@@ -14,9 +14,9 @@ import (
 
 // Watcher monitors a directory for settings file changes and triggers a callback.
 type Watcher struct {
-	fsw       *fsnotify.Watcher
-	dirs      []string
-	onChange  func()
+	fsw      *fsnotify.Watcher
+	dirs     []string
+	onChange func()
 	debounce time.Duration
 	done     chan struct{}
 	wg       sync.WaitGroup
