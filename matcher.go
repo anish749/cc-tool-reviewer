@@ -124,7 +124,11 @@ func expandTilde(path string) string {
 // sub-command (including inside pipes, &&, ||, and subshells) must match.
 // Use for allow lists.
 func MatchesAll(toolName string, toolInput json.RawMessage, rules []Rule) bool {
-	for _, cmd := range toolCommands(toolName, toolInput) {
+	cmds := toolCommands(toolName, toolInput)
+	if len(cmds) == 0 {
+		return false
+	}
+	for _, cmd := range cmds {
 		if !matchesRule(toolName, cmd, rules) {
 			return false
 		}

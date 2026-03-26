@@ -402,3 +402,12 @@ func TestMatchesAll_SubshellWithCompoundInside(t *testing.T) {
 		t.Error("compound inside subshell, all allowed → should match")
 	}
 }
+
+func TestMatchesAll_EmptyCommand(t *testing.T) {
+	rules := []Rule{{Tool: "Bash", Pattern: "git:*"}}
+
+	got := MatchesAll("Bash", bashInput(""), rules)
+	if got {
+		t.Error("empty command should NOT match any allow list")
+	}
+}
