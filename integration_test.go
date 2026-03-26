@@ -85,9 +85,7 @@ type testCase struct {
 	name         string
 	toolName     string
 	toolInput    any
-	wantLocal    bool   // true = expect local match (empty response, no API call)
-	wantAPI      bool   // true = must hit the API (non-empty response required)
-	wantDecision string // expected decision: "allow" or "ask"
+	wantDecision string // expected decision: "allow", "deny", or "ask"
 }
 
 func runTestCases(t *testing.T, socketPath string, tests []testCase) {
@@ -96,42 +94,28 @@ func runTestCases(t *testing.T, socketPath string, tests []testCase) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			resp, elapsed := sendRequest(t, socketPath, tc.toolName, tc.toolInput)
-			gotLocal := resp == ""
 
-			if tc.wantLocal {
-				if !gotLocal {
-					t.Errorf("expected local match (empty response), got: %s", resp)
-				}
-				t.Logf("%-55s  %8s  local", tc.name, elapsed.Round(time.Millisecond))
-				return
+			if resp == "" {
+				t.Fatalf("got empty response — server must always return an explicit decision")
 			}
 
-			if tc.wantAPI {
-				if gotLocal {
-					t.Fatalf("expected API call (non-empty response), but got local match (empty response) — matcher incorrectly short-circuited")
-				}
-
-				var output HookOutput
-				if err := json.Unmarshal([]byte(resp), &output); err != nil {
-					t.Fatalf("unmarshal response: %v (raw: %s)", err, resp)
-				}
-				if output.HookSpecificOutput == nil {
-					t.Fatalf("expected hookSpecificOutput, got nil")
-				}
-
-				got := output.HookSpecificOutput.PermissionDecision
-				if tc.wantDecision != "" && got != tc.wantDecision {
-					t.Errorf("decision: got %q, want %q (reason: %s)",
-						got, tc.wantDecision, output.HookSpecificOutput.PermissionDecisionReason)
-				}
-
-				t.Logf("%-55s  %8s  api  decision=%s  reason=%s",
-					tc.name, elapsed.Round(time.Millisecond),
-					got, output.HookSpecificOutput.PermissionDecisionReason)
-				return
+			var output HookOutput
+			if err := json.Unmarshal([]byte(resp), &output); err != nil {
+				t.Fatalf("unmarshal response: %v (raw: %s)", err, resp)
+			}
+			if output.HookSpecificOutput == nil {
+				t.Fatalf("expected hookSpecificOutput, got nil")
 			}
 
-			t.Fatalf("test case must set either wantLocal or wantAPI")
+			got := output.HookSpecificOutput.PermissionDecision
+			if tc.wantDecision != "" && got != tc.wantDecision {
+				t.Errorf("decision: got %q, want %q (reason: %s)",
+					got, tc.wantDecision, output.HookSpecificOutput.PermissionDecisionReason)
+			}
+
+			t.Logf("%-55s  %8s  decision=%s  reason=%s",
+				tc.name, elapsed.Round(time.Millisecond),
+				got, output.HookSpecificOutput.PermissionDecisionReason)
 		})
 	}
 }
@@ -142,80 +126,77 @@ func TestIntegration(t *testing.T) {
 	tests := []testCase{
 		// --- Local matches: allow-listed ---
 		{
-			name:      "local/allow: rg",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "rg foo bar"},
-			wantLocal: true,
+			name:         "local/allow: rg",
+			toolName:     "Bash",
+			toolInput:    map[string]string{"command": "rg foo bar"},
+			wantDecision: "allow",
 		},
 		{
-			name:      "local/allow: go test",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "go test ./..."},
-			wantLocal: true,
+			name:         "local/allow: go test",
+			toolName:     "Bash",
+			toolInput:    map[string]string{"command": "go test ./..."},
+			wantDecision: "allow",
 		},
 		{
-			name:      "local/allow: git status",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "git status -s"},
-			wantLocal: true,
+			name:         "local/allow: git status",
+			toolName:     "Bash",
+			toolInput:    map[string]string{"command": "git status -s"},
+			wantDecision: "allow",
 		},
 		{
-			name:      "local/allow: npm install",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "npm install express"},
-			wantLocal: true,
+			name:         "local/allow: npm install",
+			toolName:     "Bash",
+			toolInput:    map[string]string{"command": "npm install express"},
+			wantDecision: "allow",
 		},
 		{
-			name:      "local/allow: find",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "find . -name '*.go'"},
-			wantLocal: true,
+			name:         "local/allow: find",
+			toolName:     "Bash",
+			toolInput:    map[string]string{"command": "find . -name '*.go'"},
+			wantDecision: "allow",
 		},
 		{
-			name:      "local/allow: gh",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "gh pr list"},
-			wantLocal: true,
+			name:         "local/allow: gh",
+			toolName:     "Bash",
+			toolInput:    map[string]string{"command": "gh pr list"},
+			wantDecision: "allow",
 		},
 		// --- Local matches: deny-listed ---
 		{
-			name:      "local/deny: git reset --hard",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "git reset --hard HEAD"},
-			wantLocal: true,
+			name:         "local/deny: git reset --hard",
+			toolName:     "Bash",
+			toolInput:    map[string]string{"command": "git reset --hard HEAD"},
+			wantDecision: "deny",
 		},
 		{
-			name:      "local/deny: git add -A",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "git add -A"},
-			wantLocal: true,
+			name:         "local/deny: git add -A",
+			toolName:     "Bash",
+			toolInput:    map[string]string{"command": "git add -A"},
+			wantDecision: "deny",
 		},
 		{
-			name:      "local/deny: git branch -D",
-			toolName:  "Bash",
-			toolInput: map[string]string{"command": "git branch -D feature"},
-			wantLocal: true,
+			name:         "local/deny: git branch -D",
+			toolName:     "Bash",
+			toolInput:    map[string]string{"command": "git branch -D feature"},
+			wantDecision: "deny",
 		},
 		// --- API: simple commands not in allow list ---
 		{
 			name:         "api/ask: docker build",
 			toolName:     "Bash",
 			toolInput:    map[string]string{"command": "docker build -t myapp ."},
-			wantAPI:      true,
 			wantDecision: "ask",
 		},
 		{
 			name:         "api/ask: terraform plan",
 			toolName:     "Bash",
 			toolInput:    map[string]string{"command": "terraform plan"},
-			wantAPI:      true,
 			wantDecision: "ask",
 		},
 		{
 			name:         "api/ask: kubectl apply",
 			toolName:     "Bash",
 			toolInput:    map[string]string{"command": "kubectl apply -f deployment.yaml"},
-			wantAPI:      true,
 			wantDecision: "ask",
 		},
 	}
@@ -226,17 +207,12 @@ func TestIntegration(t *testing.T) {
 	fmt.Println("\n--- Timing Summary ---")
 	for _, tc := range tests {
 		resp, elapsed := sendRequest(t, socketPath, tc.toolName, tc.toolInput)
-		kind := "local"
 		decision := "-"
-		if resp != "" {
-			kind = "api"
-			var output HookOutput
-			json.Unmarshal([]byte(resp), &output)
-			if output.HookSpecificOutput != nil {
-				decision = output.HookSpecificOutput.PermissionDecision
-			}
+		var output HookOutput
+		if err := json.Unmarshal([]byte(resp), &output); err == nil && output.HookSpecificOutput != nil {
+			decision = output.HookSpecificOutput.PermissionDecision
 		}
-		fmt.Printf("  %-55s  %8s  %-5s  decision=%s\n", tc.name, elapsed.Round(time.Millisecond), kind, decision)
+		fmt.Printf("  %-55s  %8s  decision=%s\n", tc.name, elapsed.Round(time.Millisecond), decision)
 	}
 }
 
@@ -311,7 +287,6 @@ wait $DAEMON_PID 2>/dev/null`
 			name:         "api/allow: complex bash script composing allowed commands",
 			toolName:     "Bash",
 			toolInput:    map[string]string{"command": complexBashScript},
-			wantAPI:      true,
 			wantDecision: "allow",
 		},
 		// cd && git log — compound with &&, both parts individually allowed.
@@ -320,7 +295,6 @@ wait $DAEMON_PID 2>/dev/null`
 			name:         "api/allow: cd && git log (compound allowed)",
 			toolName:     "Bash",
 			toolInput:    map[string]string{"command": "cd ~/git/x && git log"},
-			wantAPI:      true,
 			wantDecision: "allow",
 		},
 	}

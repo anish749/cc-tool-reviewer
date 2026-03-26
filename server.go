@@ -6,9 +6,15 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/anish/cc-tool-reviewer/promptui"
 )
+
+// readTimeout bounds how long the server waits for the client (nc) to
+// send its payload and half-close the connection. If nc fails to
+// close its write side, io.ReadAll blocks forever without this.
+const readTimeout = 5 * time.Second
 
 type HookInput struct {
 	SessionID      string          `json:"session_id"`
@@ -73,11 +79,14 @@ func (s *Server) Serve() {
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
 
+	conn.SetReadDeadline(time.Now().Add(readTimeout))
 	data, err := io.ReadAll(conn)
 	if err != nil {
 		slog.Error("read error", "err", err)
 		return
 	}
+	// Clear deadline so AI review and dialog can take as long as needed.
+	conn.SetReadDeadline(time.Time{})
 
 	var input HookInput
 	if err := json.Unmarshal(data, &input); err != nil {
@@ -166,6 +175,12 @@ func (s *Server) writeResponse(conn net.Conn, decision, reason, additionalContex
 			AdditionalContext:        additionalContext,
 		},
 	}
-	resp, _ := json.Marshal(output)
-	conn.Write(resp)
+	resp, err := json.Marshal(output)
+	if err != nil {
+		slog.Error("marshal response failed", "err", err)
+		return
+	}
+	if _, err := conn.Write(resp); err != nil {
+		slog.Error("write response failed", "decision", decision, "err", err)
+	}
 }
