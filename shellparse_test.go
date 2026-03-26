@@ -14,8 +14,8 @@ func TestIsCompoundCommand(t *testing.T) {
 		// Simple commands — not compound
 		{"simple command", "curl https://example.com", false},
 		{"command with flags", "git commit -m 'hello world'", false},
-		{"pipe chain", "curl https://example.com | jq .", false},
-		{"multi-pipe", "cat file | grep foo | sort | uniq", false},
+		{"pipe chain", "curl https://example.com | jq .", true},
+		{"multi-pipe", "cat file | grep foo | sort | uniq", true},
 
 		// Separators outside quotes — compound
 		{"semicolon", "echo foo; echo bar", true},
@@ -53,7 +53,7 @@ func TestIsCompoundCommand(t *testing.T) {
 		{
 			"multiline curl piped to python",
 			"curl -s 'http://example.com' -d '{\n  \"q\": 1\n}' | python3 -m json.tool",
-			false,
+			true, // pipe makes it compound
 		},
 	}
 	for _, tc := range tests {
@@ -98,9 +98,9 @@ func TestCollectAllCommands(t *testing.T) {
 			[]string{"git add .", "git commit -m 'fix'", "git push"},
 		},
 		{
-			"pipe kept as one command",
+			"pipe splits into both sides",
 			"curl https://example.com | jq .",
-			[]string{"curl https://example.com | jq ."},
+			[]string{"curl https://example.com", "jq ."},
 		},
 		{
 			"simple subshell",

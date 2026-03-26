@@ -82,17 +82,45 @@ func TestMatchesAll_CurlSimple(t *testing.T) {
 }
 
 func TestMatchesAll_CurlWithPipe(t *testing.T) {
-	rules := []Rule{{Tool: "Bash", Pattern: "curl:*"}}
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "curl:*"},
+		{Tool: "Bash", Pattern: "jq:*"},
+	}
 
 	cmd := "curl -s https://example.com | jq ."
 	got := MatchesAll("Bash", bashInput(cmd), rules)
 	if !got {
-		t.Error("curl with pipe should match Bash(curl:*)")
+		t.Error("curl|jq with both allowed should match")
+	}
+}
+
+func TestMatchesAll_CurlWithPipePartial(t *testing.T) {
+	rules := []Rule{{Tool: "Bash", Pattern: "curl:*"}}
+
+	// jq is not in allow list → should NOT match
+	cmd := "curl -s https://example.com | jq ."
+	got := MatchesAll("Bash", bashInput(cmd), rules)
+	if got {
+		t.Error("curl|jq with only curl allowed should NOT match")
+	}
+}
+
+func TestMatchesAny_DenyPipe(t *testing.T) {
+	denyRules := []Rule{{Tool: "Bash", Pattern: "rm:*"}}
+
+	// rm on the right side of a pipe should be caught by deny
+	cmd := "cat /etc/passwd | rm -rf /"
+	got := MatchesAny("Bash", bashInput(cmd), denyRules)
+	if !got {
+		t.Error("denied command in pipe should be caught")
 	}
 }
 
 func TestMatchesAll_CurlMultilineJSON(t *testing.T) {
-	rules := []Rule{{Tool: "Bash", Pattern: "curl:*"}}
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "curl:*"},
+		{Tool: "Bash", Pattern: "python3:*"},
+	}
 
 	cmd := `curl -s 'http://video-elasticsearch-client.service.tubular:9200/intelligence/_search' -H 'Content-Type: application/json' -d '{
         "size": 0,
@@ -107,18 +135,21 @@ func TestMatchesAll_CurlMultilineJSON(t *testing.T) {
 
 	got := MatchesAll("Bash", bashInput(cmd), rules)
 	if !got {
-		t.Error("multiline curl with JSON body should match Bash(curl:*)")
+		t.Error("multiline curl piped to python3 with both allowed should match")
 	}
 }
 
 func TestMatchesAll_CurlSingleLineJSON(t *testing.T) {
-	rules := []Rule{{Tool: "Bash", Pattern: "curl:*"}}
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "curl:*"},
+		{Tool: "Bash", Pattern: "python3:*"},
+	}
 
 	cmd := `curl -s 'http://example.com' -d '{"size":0}' | python3 -m json.tool`
 
 	got := MatchesAll("Bash", bashInput(cmd), rules)
 	if !got {
-		t.Error("single-line curl should match Bash(curl:*)")
+		t.Error("single-line curl piped to python3 should match")
 	}
 }
 

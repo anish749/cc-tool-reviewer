@@ -6,71 +6,53 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// isCompoundCommand reports whether a bash command contains shell operators
-// (command separators, subshells) outside of quoted strings.
+// isCompoundCommand reports whether a bash command is more than a single
+// simple command — i.e. it contains pipelines (|), command lists (&&, ||),
+// separators (;, newline), or command substitutions ($(), backticks).
 //
-// Uses mvdan.cc/sh to parse the command into an AST. Pipelines (|) are
-// intentionally NOT considered compound — they are one logical command
-// and can be matched by prefix rules like "curl:*".
+// When true, MatchesAll/MatchesAny will decompose the command and check
+// every sub-command individually against the rules.
 func isCompoundCommand(cmd string) bool {
 	f, err := syntax.NewParser().Parse(strings.NewReader(cmd), "")
 	if err != nil {
 		return false
 	}
-	if len(f.Stmts) > 1 {
-		return true
-	}
-	if len(f.Stmts) == 0 {
-		return false
+	if len(f.Stmts) != 1 {
+		return len(f.Stmts) > 1
 	}
 	return stmtIsCompound(f.Stmts[0])
 }
 
-// stmtIsCompound checks whether a single statement is compound.
-// Pipes are NOT compound — we recurse into both sides to check for
-// actual compound operators or subshells.
+// stmtIsCompound checks whether a single statement contains any
+// binary operators (|, &&, ||) or command substitutions.
 func stmtIsCompound(stmt *syntax.Stmt) bool {
 	if stmt == nil || stmt.Cmd == nil {
 		return false
 	}
 	switch cmd := stmt.Cmd.(type) {
 	case *syntax.BinaryCmd:
-		if cmd.Op == syntax.Pipe || cmd.Op == syntax.PipeAll {
-			// Pipeline — not compound itself, but check each side
-			return stmtIsCompound(cmd.X) || stmtIsCompound(cmd.Y)
-		}
-		return true // &&, ||
+		return true // |, &&, ||
 	case *syntax.CallExpr:
-		return callHasSubshell(cmd)
+		// Simple command — only compound if args contain $() or backticks
+		found := false
+		syntax.Walk(cmd, func(node syntax.Node) bool {
+			if _, ok := node.(*syntax.CmdSubst); ok {
+				found = true
+				return false
+			}
+			return !found
+		})
+		return found
 	default:
-		// Subshell, Block, IfClause, ForClause, etc.
 		return true
 	}
-}
-
-// callHasSubshell reports whether a simple command contains $() or
-// backtick substitutions anywhere in its arguments.
-func callHasSubshell(call *syntax.CallExpr) bool {
-	found := false
-	syntax.Walk(call, func(node syntax.Node) bool {
-		if found {
-			return false
-		}
-		if _, ok := node.(*syntax.CmdSubst); ok {
-			found = true
-			return false
-		}
-		return true
-	})
-	return found
 }
 
 // CollectAllCommands returns every simple command that would execute from
 // a potentially compound, potentially nested shell command string.
 //
 // It parses the command with mvdan.cc/sh and walks the full AST:
-//   - && and || operators split into separate commands
-//   - Pipelines (|) are kept as one command string
+//   - All binary operators (|, &&, ||) split into separate commands
 //   - $() and backtick subshells are recursively descended into
 //
 // Each command is represented as its original source text so that
@@ -99,15 +81,9 @@ func collectStmt(stmt *syntax.Stmt, src string, out *[]string) {
 
 	switch cmd := stmt.Cmd.(type) {
 	case *syntax.BinaryCmd:
-		if cmd.Op == syntax.Pipe || cmd.Op == syntax.PipeAll {
-			// Pipeline — keep as one command string
-			addNodeText(cmd, src, out)
-			collectCmdSubsts(cmd, src, out)
-		} else {
-			// && or || — collect each side separately
-			collectStmt(cmd.X, src, out)
-			collectStmt(cmd.Y, src, out)
-		}
+		// |, &&, || — collect each side separately
+		collectStmt(cmd.X, src, out)
+		collectStmt(cmd.Y, src, out)
 	default:
 		// Simple command, subshell, block, etc.
 		// Use stmt.Cmd (not stmt) to exclude semicolons from the text.
