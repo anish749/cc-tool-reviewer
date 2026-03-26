@@ -119,25 +119,48 @@ func expandTilde(path string) string {
 	return path
 }
 
-// isCompoundCommand checks if a bash command is compound (multi-line, chained,
-// backgrounded, uses subshells, etc.) and shouldn't be matched by simple prefix rules.
-func isCompoundCommand(cmd string) bool {
-	return strings.ContainsAny(cmd, "\n;") ||
-		strings.Contains(cmd, "&&") ||
-		strings.Contains(cmd, "||") ||
-		strings.Contains(cmd, "$(") ||
-		strings.ContainsRune(cmd, '`')
-}
-
-// MatchesAny checks if a tool call matches any rule in the list.
-func MatchesAny(toolName string, toolInput json.RawMessage, rules []Rule) bool {
-	input := ToolInputString(toolName, toolInput)
-
-	// Compound bash commands should not match simple prefix rules — send to AI
-	if toolName == "Bash" && isCompoundCommand(input) {
+// MatchesAll returns true if every command in the tool call matches at
+// least one rule. For Bash, the command is parsed into an AST and every
+// sub-command (including inside pipes, &&, ||, and subshells) must match.
+// Use for allow lists.
+func MatchesAll(toolName string, toolInput json.RawMessage, rules []Rule) bool {
+	cmds := toolCommands(toolName, toolInput)
+	if len(cmds) == 0 {
 		return false
 	}
+	for _, cmd := range cmds {
+		if !matchesRule(toolName, cmd, rules) {
+			return false
+		}
+	}
+	return true
+}
 
+// MatchesAny returns true if at least one command in the tool call matches
+// a rule. For Bash, the command is parsed into an AST and any sub-command
+// (including inside pipes, &&, ||, and subshells) matching suffices.
+// Use for deny lists.
+func MatchesAny(toolName string, toolInput json.RawMessage, rules []Rule) bool {
+	for _, cmd := range toolCommands(toolName, toolInput) {
+		if matchesRule(toolName, cmd, rules) {
+			return true
+		}
+	}
+	return false
+}
+
+// toolCommands returns the list of command strings to match against rules.
+// For Bash tools, this parses the shell command and extracts every
+// sub-command. For other tools, it returns the single input string.
+func toolCommands(toolName string, toolInput json.RawMessage) []string {
+	input := ToolInputString(toolName, toolInput)
+	if toolName == "Bash" {
+		return CollectAllCommands(input)
+	}
+	return []string{input}
+}
+
+func matchesRule(toolName, input string, rules []Rule) bool {
 	for _, r := range rules {
 		if r.Tool != toolName {
 			continue
