@@ -103,10 +103,10 @@ func (s *Server) handle(conn net.Conn) {
 	deny := append(globalDeny, proj.Deny...)
 
 	// Matched by allow or deny rules → empty response (let Claude Code handle it)
-	if MatchesAny(input.ToolName, input.ToolInput, allow) {
+	if MatchesAny(input.ToolName, input.ToolInput, allow, MatchAll) {
 		return
 	}
-	if MatchesAny(input.ToolName, input.ToolInput, deny) {
+	if MatchesAny(input.ToolName, input.ToolInput, deny, MatchAny) {
 		return
 	}
 

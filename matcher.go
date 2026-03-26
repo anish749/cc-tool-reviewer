@@ -119,25 +119,55 @@ func expandTilde(path string) string {
 	return path
 }
 
-// isCompoundCommand checks if a bash command is compound (multi-line, chained,
-// backgrounded, uses subshells, etc.) and shouldn't be matched by simple prefix rules.
-func isCompoundCommand(cmd string) bool {
-	return strings.ContainsAny(cmd, "\n;") ||
-		strings.Contains(cmd, "&&") ||
-		strings.Contains(cmd, "||") ||
-		strings.Contains(cmd, "$(") ||
-		strings.ContainsRune(cmd, '`')
-}
+// MatchMode controls how compound commands are matched against rules.
+type MatchMode int
 
-// MatchesAny checks if a tool call matches any rule in the list.
-func MatchesAny(toolName string, toolInput json.RawMessage, rules []Rule) bool {
+const (
+	// MatchAll requires every sub-command to match a rule.
+	// Use for allow rules: only auto-allow if ALL parts are safe.
+	MatchAll MatchMode = iota
+
+	// MatchAny requires at least one sub-command to match a rule.
+	// Use for deny rules: locally deny if ANY part is denied.
+	MatchAny
+)
+
+// MatchesAny checks if a tool call matches rules in the given mode.
+//
+// For compound Bash commands (those with &&, ||, ;, newlines, or subshells
+// outside quotes), the command is recursively decomposed into every
+// individual command that would execute (including inside $() and
+// backtick subshells). The mode determines how matches are aggregated:
+//
+//   - MatchAll: every command must match a rule (use for allow lists)
+//   - MatchAny: at least one command must match (use for deny lists)
+func MatchesAny(toolName string, toolInput json.RawMessage, rules []Rule, mode MatchMode) bool {
 	input := ToolInputString(toolName, toolInput)
 
-	// Compound bash commands should not match simple prefix rules — send to AI
 	if toolName == "Bash" && isCompoundCommand(input) {
-		return false
+		cmds := CollectAllCommands(input)
+		switch mode {
+		case MatchAll:
+			for _, cmd := range cmds {
+				if !matchesRule(toolName, cmd, rules) {
+					return false
+				}
+			}
+			return len(cmds) > 0
+		case MatchAny:
+			for _, cmd := range cmds {
+				if matchesRule(toolName, cmd, rules) {
+					return true
+				}
+			}
+			return false
+		}
 	}
 
+	return matchesRule(toolName, input, rules)
+}
+
+func matchesRule(toolName, input string, rules []Rule) bool {
 	for _, r := range rules {
 		if r.Tool != toolName {
 			continue
