@@ -120,40 +120,40 @@ func expandTilde(path string) string {
 }
 
 // MatchesAll returns true if every command in the tool call matches at
-// least one rule. For compound Bash commands, all sub-commands (including
-// inside subshells) must match. Use for allow lists.
+// least one rule. For Bash, the command is parsed into an AST and every
+// sub-command (including inside pipes, &&, ||, and subshells) must match.
+// Use for allow lists.
 func MatchesAll(toolName string, toolInput json.RawMessage, rules []Rule) bool {
-	input := ToolInputString(toolName, toolInput)
-
-	if toolName == "Bash" && isCompoundCommand(input) {
-		cmds := CollectAllCommands(input)
-		for _, cmd := range cmds {
-			if !matchesRule(toolName, cmd, rules) {
-				return false
-			}
+	for _, cmd := range toolCommands(toolName, toolInput) {
+		if !matchesRule(toolName, cmd, rules) {
+			return false
 		}
-		return len(cmds) > 0
 	}
-
-	return matchesRule(toolName, input, rules)
+	return true
 }
 
 // MatchesAny returns true if at least one command in the tool call matches
-// a rule. For compound Bash commands, any sub-command (including inside
-// subshells) matching suffices. Use for deny lists.
+// a rule. For Bash, the command is parsed into an AST and any sub-command
+// (including inside pipes, &&, ||, and subshells) matching suffices.
+// Use for deny lists.
 func MatchesAny(toolName string, toolInput json.RawMessage, rules []Rule) bool {
-	input := ToolInputString(toolName, toolInput)
-
-	if toolName == "Bash" && isCompoundCommand(input) {
-		for _, cmd := range CollectAllCommands(input) {
-			if matchesRule(toolName, cmd, rules) {
-				return true
-			}
+	for _, cmd := range toolCommands(toolName, toolInput) {
+		if matchesRule(toolName, cmd, rules) {
+			return true
 		}
-		return false
 	}
+	return false
+}
 
-	return matchesRule(toolName, input, rules)
+// toolCommands returns the list of command strings to match against rules.
+// For Bash tools, this parses the shell command and extracts every
+// sub-command. For other tools, it returns the single input string.
+func toolCommands(toolName string, toolInput json.RawMessage) []string {
+	input := ToolInputString(toolName, toolInput)
+	if toolName == "Bash" {
+		return CollectAllCommands(input)
+	}
+	return []string{input}
 }
 
 func matchesRule(toolName, input string, rules []Rule) bool {
