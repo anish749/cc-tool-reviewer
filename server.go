@@ -105,9 +105,11 @@ func (s *Server) handle(conn net.Conn) {
 	// Deny checked first — specific deny rules must shadow broad allow rules.
 	// e.g. deny [git reset *] must block even when allow has [git:*].
 	if MatchesAny(input.ToolName, input.ToolInput, deny) {
+		s.writeResponse(conn, "deny", "matched deny rule", "")
 		return
 	}
 	if MatchesAll(input.ToolName, input.ToolInput, allow) {
+		s.writeAllow(conn, "matched allow rule")
 		return
 	}
 
