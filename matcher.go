@@ -119,49 +119,38 @@ func expandTilde(path string) string {
 	return path
 }
 
-// MatchMode controls how compound commands are matched against rules.
-type MatchMode int
-
-const (
-	// MatchAll requires every sub-command to match a rule.
-	// Use for allow rules: only auto-allow if ALL parts are safe.
-	MatchAll MatchMode = iota
-
-	// MatchAny requires at least one sub-command to match a rule.
-	// Use for deny rules: locally deny if ANY part is denied.
-	MatchAny
-)
-
-// MatchesAny checks if a tool call matches rules in the given mode.
-//
-// For compound Bash commands (those with &&, ||, ;, newlines, or subshells
-// outside quotes), the command is recursively decomposed into every
-// individual command that would execute (including inside $() and
-// backtick subshells). The mode determines how matches are aggregated:
-//
-//   - MatchAll: every command must match a rule (use for allow lists)
-//   - MatchAny: at least one command must match (use for deny lists)
-func MatchesAny(toolName string, toolInput json.RawMessage, rules []Rule, mode MatchMode) bool {
+// MatchesAll returns true if every command in the tool call matches at
+// least one rule. For compound Bash commands, all sub-commands (including
+// inside subshells) must match. Use for allow lists.
+func MatchesAll(toolName string, toolInput json.RawMessage, rules []Rule) bool {
 	input := ToolInputString(toolName, toolInput)
 
 	if toolName == "Bash" && isCompoundCommand(input) {
 		cmds := CollectAllCommands(input)
-		switch mode {
-		case MatchAll:
-			for _, cmd := range cmds {
-				if !matchesRule(toolName, cmd, rules) {
-					return false
-				}
+		for _, cmd := range cmds {
+			if !matchesRule(toolName, cmd, rules) {
+				return false
 			}
-			return len(cmds) > 0
-		case MatchAny:
-			for _, cmd := range cmds {
-				if matchesRule(toolName, cmd, rules) {
-					return true
-				}
-			}
-			return false
 		}
+		return len(cmds) > 0
+	}
+
+	return matchesRule(toolName, input, rules)
+}
+
+// MatchesAny returns true if at least one command in the tool call matches
+// a rule. For compound Bash commands, any sub-command (including inside
+// subshells) matching suffices. Use for deny lists.
+func MatchesAny(toolName string, toolInput json.RawMessage, rules []Rule) bool {
+	input := ToolInputString(toolName, toolInput)
+
+	if toolName == "Bash" && isCompoundCommand(input) {
+		for _, cmd := range CollectAllCommands(input) {
+			if matchesRule(toolName, cmd, rules) {
+				return true
+			}
+		}
+		return false
 	}
 
 	return matchesRule(toolName, input, rules)
