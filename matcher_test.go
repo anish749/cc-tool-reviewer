@@ -403,6 +403,200 @@ func TestMatchesAll_SubshellWithCompoundInside(t *testing.T) {
 	}
 }
 
+func TestMatchesAll_CurlMultilineWithHead(t *testing.T) {
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "curl:*"},
+		{Tool: "Bash", Pattern: "head:*"},
+	}
+
+	cmd := `curl -s --max-time 15 'http://api.example.com/v1/items?format=json' -H 'Content-Type: application/json' -d '{
+        "limit": 1,
+        "filter": {"status": "active", "created_after": "2026-03-28T10:00:00Z"},
+        "fields": ["id", "name", "updated_at"]
+      }' | head -80`
+
+	got := MatchesAll("Bash", bashInput(cmd), rules)
+	if !got {
+		t.Error("multiline curl with JSON body piped to head, both allowed, should match")
+	}
+}
+
+func TestMatchesAll_CurlMultilineWithHeadCurlOnly(t *testing.T) {
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "curl:*"},
+	}
+
+	cmd := `curl -s --max-time 15 'http://api.example.com/v1/items?format=json' -H 'Content-Type: application/json' -d '{
+        "limit": 1,
+        "filter": {"status": "active", "created_after": "2026-03-28T10:00:00Z"},
+        "fields": ["id", "name", "updated_at"]
+      }' | head -80`
+
+	got := MatchesAll("Bash", bashInput(cmd), rules)
+	if got {
+		t.Error("head not in allow list → should NOT match")
+	}
+}
+
+// --- Control-flow constructs (for, if, while, case) ---
+
+func TestMatchesAll_ForLoopAllAllowed(t *testing.T) {
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "curl:*"},
+		{Tool: "Bash", Pattern: "echo:*"},
+		{Tool: "Bash", Pattern: "python3:*"},
+		{Tool: "Bash", Pattern: "[:*"},
+	}
+
+	cmd := `for region in us-east eu-west ap-south; do
+        result=$(curl -s --max-time 10 "http://api.example.com/v1/regions/${region}/status" -H 'Content-Type: application/json' -d "{\"limit\":0}" 2>/dev/null)
+        count=$(echo "$result" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['total'])" 2>/dev/null)
+        if [ "$count" != "0" ] && [ -n "$count" ]; then
+          echo "$region: $count hits"
+        fi
+      done`
+
+	got := MatchesAll("Bash", bashInput(cmd), rules)
+	if !got {
+		t.Error("for loop with all inner commands allowed → should match")
+	}
+}
+
+func TestMatchesAll_ForLoopPartiallyAllowed(t *testing.T) {
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "curl:*"},
+		{Tool: "Bash", Pattern: "echo:*"},
+	}
+
+	cmd := `for region in us-east eu-west; do
+        result=$(curl -s "http://example.com" 2>/dev/null)
+        count=$(echo "$result" | python3 -c "import json,sys; print('ok')" 2>/dev/null)
+        echo "$region: $count"
+      done`
+
+	got := MatchesAll("Bash", bashInput(cmd), rules)
+	if got {
+		t.Error("python3 not in allow list → should NOT match")
+	}
+}
+
+func TestMatchesAll_IfElseAllAllowed(t *testing.T) {
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "[:*"},
+		{Tool: "Bash", Pattern: "echo:*"},
+	}
+
+	cmd := `if [ -f go.mod ]; then echo found; else echo missing; fi`
+	got := MatchesAll("Bash", bashInput(cmd), rules)
+	if !got {
+		t.Error("if-else with all commands allowed → should match")
+	}
+}
+
+func TestMatchesAll_IfElsePartiallyAllowed(t *testing.T) {
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "echo:*"},
+	}
+
+	cmd := `if [ -f go.mod ]; then echo found; else echo missing; fi`
+	got := MatchesAll("Bash", bashInput(cmd), rules)
+	if got {
+		t.Error("[ (test condition) not in allow list → should NOT match")
+	}
+}
+
+func TestMatchesAll_WhileAllAllowed(t *testing.T) {
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "true:*"},
+		{Tool: "Bash", Pattern: "echo:*"},
+		{Tool: "Bash", Pattern: "sleep:*"},
+	}
+
+	cmd := "while true; do echo waiting; sleep 1; done"
+	got := MatchesAll("Bash", bashInput(cmd), rules)
+	if !got {
+		t.Error("while loop with all commands allowed → should match")
+	}
+}
+
+func TestMatchesAll_WhilePartiallyAllowed(t *testing.T) {
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "true:*"},
+		{Tool: "Bash", Pattern: "echo:*"},
+	}
+
+	cmd := "while true; do echo waiting; sleep 1; done"
+	got := MatchesAll("Bash", bashInput(cmd), rules)
+	if got {
+		t.Error("sleep not in allow list → should NOT match")
+	}
+}
+
+func TestMatchesAny_DenyInsideForLoop(t *testing.T) {
+	denyRules := []Rule{{Tool: "Bash", Pattern: "rm:*"}}
+
+	cmd := "for f in /tmp/*.log; do rm -f $f; done"
+	got := MatchesAny("Bash", bashInput(cmd), denyRules)
+	if !got {
+		t.Error("denied command inside for loop → should match")
+	}
+}
+
+func TestMatchesAny_DenyInsideIfBranch(t *testing.T) {
+	denyRules := []Rule{{Tool: "Bash", Pattern: "rm:*"}}
+
+	cmd := `if [ -f /tmp/data ]; then rm -rf /tmp/data; fi`
+	got := MatchesAny("Bash", bashInput(cmd), denyRules)
+	if !got {
+		t.Error("denied command inside if-then → should match")
+	}
+}
+
+func TestMatchesAll_CommentThenCurl(t *testing.T) {
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "curl:*"},
+	}
+
+	cmd := "# Fetch recent orders from the API\ncurl -s --max-time 15 'http://api.example.com/v1/orders?format=json' -H 'Content-Type: application/json' -d '{\n        \"limit\": 5,\n        \"filter\": {\"status\": \"pending\"},\n        \"fields\": [\"id\", \"amount\", \"created_at\"]\n      }'"
+
+	got := MatchesAll("Bash", bashInput(cmd), rules)
+	if !got {
+		t.Error("comment followed by curl, curl allowed → should match")
+	}
+}
+
+func TestMatchesAll_CommentThenForLoop(t *testing.T) {
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "curl:*"},
+		{Tool: "Bash", Pattern: "echo:*"},
+		{Tool: "Bash", Pattern: "python3:*"},
+	}
+
+	cmd := "# Check each region in parallel\nfor region in us-east eu-west; do\n  result=$(curl -s \"http://api.example.com/v1/regions/${region}/health\" 2>/dev/null)\n  count=$(echo \"$result\" | python3 -c \"import json,sys; print('ok')\" 2>/dev/null)\n  echo \"$region: $count\"\ndone"
+
+	got := MatchesAll("Bash", bashInput(cmd), rules)
+	if !got {
+		t.Error("comment + for-loop with all inner commands allowed → should match")
+	}
+}
+
+func TestMatchesAll_CurlMultilineJSONBody(t *testing.T) {
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "curl:*"},
+	}
+
+	cmd := `curl -s --max-time 15 'http://api.example.com/v1/users?format=json' -H 'Content-Type: application/json' -d '{
+        "limit": 5,
+        "filter": {"role": "admin"},
+        "fields": ["id", "email", "created_at"]
+      }'`
+
+	got := MatchesAll("Bash", bashInput(cmd), rules)
+	if !got {
+		t.Error("standalone multiline curl with JSON body, curl allowed → should match")
+	}
+}
+
 func TestMatchesAll_EmptyCommand(t *testing.T) {
 	rules := []Rule{{Tool: "Bash", Pattern: "git:*"}}
 
