@@ -11,6 +11,7 @@ import (
 //
 // It parses the command with mvdan.cc/sh and walks the full AST:
 //   - All binary operators (|, &&, ||) split into separate commands
+//   - for, if, while, case, subshell, and block constructs are descended into
 //   - $() and backtick subshells are recursively descended into
 //
 // Each command is represented as its original source text so that
@@ -42,11 +43,49 @@ func collectStmt(stmt *syntax.Stmt, src string, out *[]string) {
 		// |, &&, || — collect each side separately
 		collectStmt(cmd.X, src, out)
 		collectStmt(cmd.Y, src, out)
+	case *syntax.ForClause:
+		collectStmts(cmd.Do, src, out)
+	case *syntax.WhileClause:
+		collectStmts(cmd.Cond, src, out)
+		collectStmts(cmd.Do, src, out)
+	case *syntax.IfClause:
+		collectIfClause(cmd, src, out)
+	case *syntax.CaseClause:
+		for _, ci := range cmd.Items {
+			collectStmts(ci.Stmts, src, out)
+		}
+	case *syntax.Subshell:
+		collectStmts(cmd.Stmts, src, out)
+	case *syntax.Block:
+		collectStmts(cmd.Stmts, src, out)
+	case *syntax.CallExpr:
+		if len(cmd.Args) == 0 && len(cmd.Assigns) > 0 {
+			// Pure assignment (e.g. result=$(curl ...)) — not a command
+			// to gate, but descend into subshells in the values.
+			collectCmdSubsts(cmd, src, out)
+		} else {
+			addNodeText(cmd, src, out)
+			collectCmdSubsts(cmd, src, out)
+		}
 	default:
-		// Simple command, subshell, block, etc.
-		// Use stmt.Cmd (not stmt) to exclude semicolons from the text.
 		addNodeText(stmt.Cmd, src, out)
 		collectCmdSubsts(stmt.Cmd, src, out)
+	}
+}
+
+// collectStmts collects commands from a slice of statements.
+func collectStmts(stmts []*syntax.Stmt, src string, out *[]string) {
+	for _, s := range stmts {
+		collectStmt(s, src, out)
+	}
+}
+
+// collectIfClause recursively collects commands from if/elif/else chains.
+func collectIfClause(ic *syntax.IfClause, src string, out *[]string) {
+	collectStmts(ic.Cond, src, out)
+	collectStmts(ic.Then, src, out)
+	if ic.Else != nil {
+		collectIfClause(ic.Else, src, out)
 	}
 }
 
