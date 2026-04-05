@@ -12,20 +12,42 @@ import (
 	"time"
 
 	"github.com/anish/cc-tool-reviewer/configwatcher"
+	"github.com/anish/cc-tool-reviewer/internal/selfupdate"
 	"github.com/anish/cc-tool-reviewer/promptui"
 	"github.com/lmittmann/tint"
 )
+
+// version is overridden at build time via ldflags.
+var version = "dev"
 
 const DefaultSocketPath = "/tmp/cc-tool-reviewer.sock"
 
 func main() {
 	socketPath := flag.String("socket", DefaultSocketPath, "Unix socket path")
 	legacyUI := flag.Bool("legacy-ui", false, "use the legacy AppKit dialog instead of SwiftUI")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("cc-tool-reviewer", version)
+		os.Exit(0)
+	}
+
+	// Handle subcommands
+	if flag.NArg() > 0 && flag.Arg(0) == "update" {
+		if err := selfupdate.Update(version); err != nil {
+			fmt.Fprintf(os.Stderr, "update failed: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 
 	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{
 		TimeFormat: time.Kitchen,
 	})))
+
+	// Background update check (never blocks)
+	selfupdate.AutoCheck(version)
 
 	// Always remove stale socket before starting
 	os.Remove(*socketPath)
