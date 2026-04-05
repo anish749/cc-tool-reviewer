@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anish/cc-tool-reviewer/configwatcher"
+	"github.com/anish/cc-tool-reviewer/internal/selfupdate"
 	"github.com/anish/cc-tool-reviewer/promptui"
 	"github.com/lmittmann/tint"
 )
@@ -34,7 +35,7 @@ func main() {
 
 	// Handle subcommands
 	if flag.NArg() > 0 && flag.Arg(0) == "update" {
-		if err := runSelfUpdate(); err != nil {
+		if err := selfupdate.Update(version); err != nil {
 			fmt.Fprintf(os.Stderr, "update failed: %v\n", err)
 			os.Exit(1)
 		}
@@ -46,7 +47,7 @@ func main() {
 	})))
 
 	// Background update check (never blocks)
-	go checkForUpdateSilently()
+	selfupdate.AutoCheck(version)
 
 	// Always remove stale socket before starting
 	os.Remove(*socketPath)
