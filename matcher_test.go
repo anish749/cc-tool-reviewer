@@ -663,7 +663,7 @@ func TestMatchesRule_Synonyms(t *testing.T) {
 		},
 		{
 			"double bracket matches test:* via synonym",
-			ParsedCommand{Text: `[[ -f go.mod ]]`, Args: []string{"[[", "-f", "go.mod", "]]"}},
+			ParsedCommand{Text: `[[ -f go.mod ]]`},
 			[]Rule{{Tool: "Bash", Pattern: "test:*"}},
 			true,
 		},
