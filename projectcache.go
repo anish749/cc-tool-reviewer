@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -26,6 +27,7 @@ type ProjectRulesProvider interface {
 type ProjectCache struct {
 	cache   *ttlcache.Cache[string, ProjectRules]
 	watcher *fsnotify.Watcher
+	mu      sync.Mutex      // guards watched and concurrent watcher.Add calls
 	watched map[string]bool // directories we're already watching
 }
 
@@ -83,6 +85,10 @@ func (pc *ProjectCache) Stop() {
 
 func (pc *ProjectCache) watchDir(cwd string) {
 	claudeDir := filepath.Join(cwd, ".claude")
+
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
+
 	if pc.watched[claudeDir] {
 		return
 	}
