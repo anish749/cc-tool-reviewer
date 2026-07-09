@@ -4,8 +4,9 @@
 // It runs `claude -p` (print mode) with the default Claude Code system prompt
 // replaced by the caller's, so the request carries only the caller's tokens and
 // authenticates with the machine's existing Claude login instead of an
-// ANTHROPIC_API_KEY. Complete returns the model's raw reply; higher layers
-// decide how to interpret it (see internal/llm).
+// ANTHROPIC_API_KEY. Complete returns the model's raw reply; the internal/llm
+// layer owns everything above it — the model to use, the timeout, and how to
+// interpret the reply.
 package claudecli
 
 import (
@@ -15,18 +16,10 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"time"
 )
 
-const (
-	// DefaultModel matches the Anthropic SDK reviewer's model (Haiku 4.5).
-	DefaultModel = "claude-haiku-4-5"
-	// DefaultTimeout bounds a single CLI call. CLI cold-start is slower than a
-	// direct API call, so this is more generous than the SDK path's timeout.
-	DefaultTimeout = 30 * time.Second
-	// binaryName is the CLI looked up on PATH by default.
-	binaryName = "claude"
-)
+// binaryName is the CLI looked up on PATH.
+const binaryName = "claude"
 
 // envelope is the JSON object emitted by `claude --output-format json`.
 type envelope struct {
@@ -40,69 +33,25 @@ type envelope struct {
 // so tests can substitute a fake without spawning a real process.
 type runnerFunc func(ctx context.Context, name string, args ...string) ([]byte, error)
 
-// Client is a reusable, one-shot wrapper around the `claude` CLI. The zero
-// value is not usable; construct one with New.
+// Client is a one-shot wrapper around the `claude` CLI for a fixed model.
 type Client struct {
-	bin     string
-	model   string
-	timeout time.Duration
-	run     runnerFunc
+	bin   string
+	model string
+	run   runnerFunc
 }
 
-// Option configures a Client.
-type Option func(*Client)
-
-// WithModel overrides the model passed to `--model`. Empty values are ignored.
-func WithModel(model string) Option {
-	return func(c *Client) {
-		if model != "" {
-			c.model = model
-		}
-	}
-}
-
-// WithTimeout overrides the per-call timeout. A non-positive duration disables
-// the client-side timeout, leaving the call bounded only by the caller's ctx.
-func WithTimeout(d time.Duration) Option {
-	return func(c *Client) { c.timeout = d }
-}
-
-// WithBinary overrides the CLI binary name or path (default "claude"). Empty
-// values are ignored.
-func WithBinary(path string) Option {
-	return func(c *Client) {
-		if path != "" {
-			c.bin = path
-		}
-	}
-}
-
-// New builds a Client with sane defaults, applying opts in order.
-func New(opts ...Option) *Client {
-	c := &Client{
-		bin:     binaryName,
-		model:   DefaultModel,
-		timeout: DefaultTimeout,
-	}
-	for _, opt := range opts {
-		opt(c)
-	}
-	if c.run == nil {
-		c.run = execRunner
-	}
-	return c
+// New builds a Client that calls the given model via the `claude` binary on
+// PATH. Tests may override the bin and run fields directly.
+func New(model string) *Client {
+	return &Client{bin: binaryName, model: model, run: execRunner}
 }
 
 // Complete runs prompt with systemPrompt in one-shot mode and returns the
-// model's raw reply. An empty systemPrompt keeps Claude Code's default system
-// prompt. Trimming and JSON decoding are the caller's concern.
+// model's raw reply. It honors ctx cancellation (including any deadline the
+// caller set) but imposes no timeout of its own — that, like trimming and JSON
+// decoding, is the caller's concern. An empty systemPrompt keeps Claude Code's
+// default system prompt.
 func (c *Client) Complete(ctx context.Context, systemPrompt, prompt string) (string, error) {
-	if c.timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.timeout)
-		defer cancel()
-	}
-
 	stdout, err := c.run(ctx, c.bin, buildArgs(c.model, systemPrompt, prompt)...)
 	if err != nil {
 		return "", err

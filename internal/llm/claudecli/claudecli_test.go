@@ -27,7 +27,8 @@ func (f *fakeRunner) run(_ context.Context, name string, args ...string) ([]byte
 
 func newTestClient(t *testing.T, r runnerFunc) *Client {
 	t.Helper()
-	c := New(WithBinary("claude-test"), WithModel("claude-haiku-4-5"))
+	c := New("claude-haiku-4-5")
+	c.bin = "claude-test"
 	c.run = r
 	return c
 }
@@ -135,33 +136,28 @@ func TestComplete_RunnerError(t *testing.T) {
 	}
 }
 
-func TestComplete_Timeout(t *testing.T) {
-	// A runner that blocks until ctx cancellation proves the client applies its
-	// own timeout to the call.
+func TestComplete_HonorsContextDeadline(t *testing.T) {
+	// Complete imposes no timeout of its own, but must honor a deadline set on
+	// the caller's context (the timeout now lives one layer up).
 	slow := func(ctx context.Context, _ string, _ ...string) ([]byte, error) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
-	c := New(WithBinary("claude-test"), WithTimeout(20*time.Millisecond))
+	c := New("claude-haiku-4-5")
 	c.run = slow
 
-	start := time.Now()
-	_, err := c.Complete(context.Background(), "", "user")
-	if err == nil {
-		t.Fatal("expected timeout error")
-	}
-	if !errors.Is(err, context.DeadlineExceeded) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := c.Complete(ctx, "", "user"); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected DeadlineExceeded, got %v", err)
-	}
-	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Fatalf("timeout took too long: %v", elapsed)
 	}
 }
 
 func TestExecRunner_BadBinary(t *testing.T) {
 	// The default exec runner must surface an error when the binary is missing,
 	// rather than panicking or returning empty output.
-	c := New(WithBinary("/nonexistent/claude-xyz"), WithTimeout(2*time.Second))
+	c := New("claude-haiku-4-5")
+	c.bin = "/nonexistent/claude-xyz"
 	if _, err := c.Complete(context.Background(), "", "hi"); err == nil {
 		t.Fatal("expected error for missing binary")
 	}

@@ -1,10 +1,11 @@
 // Package llm provides a small one-shot LLM client used by the reviewer.
 //
 // A Client turns a single (system prompt, user prompt) pair into either plain
-// text or a JSON-decoded value. The two concerns are split cleanly: producing
-// the model's raw reply is backend-specific (Anthropic SDK or the local Claude
-// CLI), while trimming text and decoding JSON is shared across every backend
-// and implemented exactly once here.
+// text or a JSON-decoded value. There is one Client interface over two ways of
+// calling Claude — the Anthropic SDK and the local `claude` CLI. Everything
+// common to both (the model, the timeout, trimming, and JSON decoding) lives
+// here in the shared layer and is configured once via Option; each backend only
+// supplies the raw completion.
 package llm
 
 import (
@@ -12,6 +13,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/anish/cc-tool-reviewer/internal/llm/claudecli"
 )
 
 // Client is a one-shot LLM caller. Text returns the model's reply as plain
@@ -21,16 +25,49 @@ type Client interface {
 	JSON(ctx context.Context, systemPrompt, prompt string, out any) error
 }
 
+// config holds the settings common to every backend. Backends receive resolved
+// values; they never define these themselves.
+type config struct {
+	model   string
+	timeout time.Duration
+}
+
+// Option configures a Client. The same options apply to whichever backend is
+// constructed, so common settings are declared once, here.
+type Option func(*config)
+
+// WithModel sets the model both backends use.
+func WithModel(model string) Option { return func(c *config) { c.model = model } }
+
+// WithTimeout bounds each call; a non-positive duration disables the timeout.
+func WithTimeout(d time.Duration) Option { return func(c *config) { c.timeout = d } }
+
+func newConfig(opts ...Option) config {
+	var cfg config
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	return cfg
+}
+
 // generateFunc produces the model's raw reply for a system+user prompt. It is
 // the single operation each backend supplies; Text and JSON are layered on top.
 type generateFunc func(ctx context.Context, systemPrompt, prompt string) (string, error)
 
-// client is the one Client implementation. Backends differ only in generate.
+// client is the one Client implementation. Backends differ only in generate;
+// cross-cutting concerns (the call timeout) are applied here, once, so no
+// backend has to implement them.
 type client struct {
 	generate generateFunc
+	timeout  time.Duration // applied around every call; <=0 disables
 }
 
 func (c *client) Text(ctx context.Context, systemPrompt, prompt string) (string, error) {
+	if c.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
 	raw, err := c.generate(ctx, systemPrompt, prompt)
 	if err != nil {
 		return "", err
@@ -47,6 +84,13 @@ func (c *client) JSON(ctx context.Context, systemPrompt, prompt string, out any)
 		return &ParseError{Raw: text, Err: err}
 	}
 	return nil
+}
+
+// NewCLIClient returns a Client backed by the local `claude` CLI, which uses the
+// machine's existing Claude login instead of an API key.
+func NewCLIClient(opts ...Option) Client {
+	cfg := newConfig(opts...)
+	return &client{generate: claudecli.New(cfg.model).Complete, timeout: cfg.timeout}
 }
 
 // ParseError reports that the model's reply was not valid JSON. It carries the

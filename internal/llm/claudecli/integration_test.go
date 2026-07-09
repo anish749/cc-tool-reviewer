@@ -23,10 +23,12 @@ func TestLive_Complete(t *testing.T) {
 		t.Skipf("%q not found on PATH", binaryName)
 	}
 
-	c := New(WithTimeout(60 * time.Second))
+	c := New("claude-haiku-4-5")
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	sys := "You are a terse echo. Reply with only the single word the user asks for, no punctuation."
 
-	got, err := c.Complete(context.Background(), sys, "Respond with the single word: pong")
+	got, err := c.Complete(ctx, sys, "Respond with the single word: pong")
 	if err != nil {
 		t.Fatalf("live Complete: %v", err)
 	}
