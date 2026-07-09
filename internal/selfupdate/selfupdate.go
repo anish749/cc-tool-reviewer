@@ -16,14 +16,17 @@ const repo = "anish749/cc-tool-reviewer"
 const checkInterval = 24 * time.Hour
 
 // Update checks for the latest release and replaces the binary if a newer version exists.
-func Update(currentVersion string) error {
+func Update(currentVersion string, isRelease bool) error {
+	if !isRelease {
+		return fmt.Errorf("auto-update is only available on official release builds; rebuild from source or download a release from https://github.com/%s/releases", repo)
+	}
 	return doUpdate(currentVersion, true)
 }
 
 // AutoCheck checks for updates if 24 hours have passed since the last check.
 // Runs silently in the background so it never blocks the user's command.
-func AutoCheck(currentVersion string) {
-	if currentVersion == "dev" {
+func AutoCheck(currentVersion string, isRelease bool) {
+	if !isRelease {
 		return
 	}
 

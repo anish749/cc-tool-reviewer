@@ -17,8 +17,10 @@ import (
 	"github.com/lmittmann/tint"
 )
 
-// version is overridden at build time via ldflags.
+// version and release are overridden at build time via ldflags.
+// release is only set to "true" by goreleaser for official release builds.
 var version = "dev"
+var release = "false"
 
 const DefaultSocketPath = "/tmp/cc-tool-reviewer.sock"
 
@@ -35,7 +37,7 @@ func main() {
 
 	// Handle subcommands
 	if flag.NArg() > 0 && flag.Arg(0) == "update" {
-		if err := selfupdate.Update(version); err != nil {
+		if err := selfupdate.Update(version, release == "true"); err != nil {
 			fmt.Fprintf(os.Stderr, "update failed: %v\n", err)
 			os.Exit(1)
 		}
@@ -47,7 +49,7 @@ func main() {
 	})))
 
 	// Background update check (never blocks)
-	selfupdate.AutoCheck(version)
+	selfupdate.AutoCheck(version, release == "true")
 
 	// Always remove stale socket before starting
 	os.Remove(*socketPath)
