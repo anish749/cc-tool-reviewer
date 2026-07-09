@@ -3,12 +3,26 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
-	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anish/cc-tool-reviewer/internal/llm"
+)
+
+// EnvUseCLIClient, when set to a non-empty value, routes review through the
+// local `claude` CLI (using the machine's Claude login) instead of the
+// Anthropic SDK (which authenticates with ANTHROPIC_API_KEY).
+const EnvUseCLIClient = "USE_CLAUDE_CLI_CLIENT"
+
+// reviewModel and reviewLLMTimeout are the settings common to both backends,
+// owned here at the creation site and passed into the llm layer as options.
+const (
+	reviewModel      = "claude-haiku-4-5"
+	reviewLLMTimeout = 15 * time.Second
 )
 
 type ReviewDecision struct {
@@ -16,14 +30,57 @@ type ReviewDecision struct {
 	Reason   string `json:"reason"`
 }
 
+// Reviewer decides whether a tool call that missed the permission rules should
+// be allowed or escalated to the user. It owns the reviewer-specific prompt and
+// decision logic; the LLM call is an injected dependency.
 type Reviewer struct {
-	client       *anthropic.Client
+	llm          llm.Client
 	systemPrompt string
 }
 
-func NewReviewer(allowRules []string) *Reviewer {
-	client := anthropic.NewClient()
+// NewReviewer builds a reviewer backed by the given LLM client.
+func NewReviewer(client llm.Client, allowRules []string) *Reviewer {
+	return &Reviewer{llm: client, systemPrompt: buildSystemPrompt(allowRules)}
+}
 
+// NewReviewLLM selects the LLM client from the environment: the CLI-backed
+// client when USE_CLAUDE_CLI_CLIENT is set, otherwise the Anthropic SDK one.
+func NewReviewLLM() llm.Client {
+	opts := []llm.Option{llm.WithModel(reviewModel), llm.WithTimeout(reviewLLMTimeout)}
+	if os.Getenv(EnvUseCLIClient) != "" {
+		slog.Info("reviewer using claude CLI client")
+		return llm.NewCLIClient(opts...)
+	}
+	return llm.NewAnthropicClient(opts...)
+}
+
+// Review asks the model to classify a tool call. It returns an "allow"/"ask"
+// decision, coercing anything unclear to "ask". A malformed model reply is a
+// soft "ask" (the caller can still surface a dialog); a transport failure is a
+// hard error the caller decides how to handle.
+func (r *Reviewer) Review(toolName string, toolInput json.RawMessage) (*ReviewDecision, error) {
+	var decision ReviewDecision
+	err := r.llm.JSON(context.Background(), r.systemPrompt, buildUserMessage(toolName, toolInput), &decision)
+	if err != nil {
+		var parseErr *llm.ParseError
+		if errors.As(err, &parseErr) {
+			slog.Warn("failed to parse reviewer response", "text", parseErr.Raw)
+			return &ReviewDecision{Decision: "ask", Reason: "could not parse reviewer response"}, nil
+		}
+		return nil, fmt.Errorf("review: %w", err)
+	}
+
+	decision.Decision = strings.ToLower(strings.TrimSpace(decision.Decision))
+	if decision.Decision != "allow" {
+		slog.Info("reviewer falling back to ask", "model_decision", decision.Decision, "reason", decision.Reason)
+		decision.Decision = "ask"
+	}
+	return &decision, nil
+}
+
+// buildSystemPrompt renders the reviewer instructions with the user's allowed
+// patterns embedded.
+func buildSystemPrompt(allowRules []string) string {
 	var sb strings.Builder
 	sb.WriteString(`You are reviewing tool calls for a CLI tool called Claude Code. A tool call is about to execute that did not exactly match the user's configured permission rules. Your job is to reduce unnecessary prompts by allowing commands that are consistent with what the user has already permitted.
 
@@ -47,60 +104,10 @@ Only evaluate commands actually EXECUTED by the shell, not strings inside quotes
 
 Respond with ONLY a valid JSON object. No markdown, no explanation, no code fences:
 {"decision": "allow" or "ask", "reason": "brief one-line reason"}`)
-
-	return &Reviewer{client: &client, systemPrompt: sb.String()}
+	return sb.String()
 }
 
-func (r *Reviewer) Review(toolName string, toolInput json.RawMessage) (*ReviewDecision, error) {
-	userMsg := fmt.Sprintf("Tool: %s\nInput: %s", toolName, string(toolInput))
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	resp, err := r.client.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     anthropic.ModelClaudeHaiku4_5,
-		MaxTokens: 128,
-		System: []anthropic.TextBlockParam{
-			{
-				Text: r.systemPrompt,
-				CacheControl: anthropic.CacheControlEphemeralParam{
-					Type: "ephemeral",
-					TTL:  anthropic.CacheControlEphemeralTTLTTL1h,
-				},
-			},
-		},
-		Messages: []anthropic.MessageParam{
-			anthropic.NewUserMessage(anthropic.NewTextBlock(userMsg)),
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("anthropic API error: %w", err)
-	}
-
-	if len(resp.Content) == 0 {
-		return nil, fmt.Errorf("empty response from API")
-	}
-
-	text := resp.Content[0].Text
-
-	// Strip markdown fences if the model wraps them anyway
-	text = strings.TrimSpace(text)
-	text = strings.TrimPrefix(text, "```json")
-	text = strings.TrimPrefix(text, "```")
-	text = strings.TrimSuffix(text, "```")
-	text = strings.TrimSpace(text)
-
-	var decision ReviewDecision
-	if err := json.Unmarshal([]byte(text), &decision); err != nil {
-		slog.Warn("failed to parse reviewer response", "text", text)
-		return &ReviewDecision{Decision: "ask", Reason: "could not parse reviewer response"}, nil
-	}
-
-	// Normalize
-	decision.Decision = strings.ToLower(strings.TrimSpace(decision.Decision))
-	if decision.Decision != "allow" {
-		decision.Decision = "ask"
-	}
-
-	return &decision, nil
+// buildUserMessage is the per-call user turn describing the tool invocation.
+func buildUserMessage(toolName string, toolInput json.RawMessage) string {
+	return fmt.Sprintf("Tool: %s\nInput: %s", toolName, string(toolInput))
 }
