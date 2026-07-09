@@ -644,47 +644,47 @@ func TestInputSynonyms(t *testing.T) {
 
 func TestMatchesRule_Synonyms(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		rules   []Rule
-		want    bool
+		name  string
+		cmd   ParsedCommand
+		rules []Rule
+		want  bool
 	}{
 		{
 			"bracket matches test:* via synonym",
-			`[ -f go.mod ]`,
+			ParsedCommand{Text: `[ -f go.mod ]`, Args: []string{"[", "-f", "go.mod", "]"}},
 			[]Rule{{Tool: "Bash", Pattern: "test:*"}},
 			true,
 		},
 		{
 			"test matches [:* via synonym",
-			"test -f go.mod",
+			ParsedCommand{Text: "test -f go.mod", Args: []string{"test", "-f", "go.mod"}},
 			[]Rule{{Tool: "Bash", Pattern: "[:*"}},
 			true,
 		},
 		{
 			"double bracket matches test:* via synonym",
-			`[[ -f go.mod ]]`,
+			ParsedCommand{Text: `[[ -f go.mod ]]`},
 			[]Rule{{Tool: "Bash", Pattern: "test:*"}},
 			true,
 		},
 		{
 			"test still matches test:* directly",
-			"test -f go.mod",
+			ParsedCommand{Text: "test -f go.mod", Args: []string{"test", "-f", "go.mod"}},
 			[]Rule{{Tool: "Bash", Pattern: "test:*"}},
 			true,
 		},
 		{
 			"unrelated command does not match via synonym",
-			"echo hello",
+			ParsedCommand{Text: "echo hello", Args: []string{"echo", "hello"}},
 			[]Rule{{Tool: "Bash", Pattern: "test:*"}},
 			false,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := matchesRule("Bash", tc.input, tc.rules)
+			got := matchesRule("Bash", tc.cmd, tc.rules)
 			if got != tc.want {
-				t.Errorf("matchesRule(%q) = %v, want %v", tc.input, got, tc.want)
+				t.Errorf("matchesRule(%q) = %v, want %v", tc.cmd.Text, got, tc.want)
 			}
 		})
 	}
@@ -848,6 +848,50 @@ func TestMatchesAny_DenyNormalizedGit(t *testing.T) {
 	}
 }
 
+func TestMatchesRule_NilArgsNoFalseMatch(t *testing.T) {
+	// Non-CallExpr nodes (like [[ ... ]]) and non-Bash tools produce
+	// Args == nil. normalize.Command(nil) returns "", which must not
+	// be matched against patterns — otherwise any pattern with an
+	// empty effective prefix (e.g. ":*", "**") would match everything.
+	tests := []struct {
+		name  string
+		cmd   ParsedCommand
+		rules []Rule
+		want  bool
+	}{
+		{
+			"nil args does not false-match via normalize",
+			ParsedCommand{Text: `[[ -f foo ]]`},
+			[]Rule{{Tool: "Bash", Pattern: "docker:*"}},
+			false,
+		},
+		{
+			"nil args does not match glob",
+			ParsedCommand{Text: "/tmp/somefile"},
+			[]Rule{{Tool: "Read", Pattern: "~/go/pkg/mod/**"}},
+			false,
+		},
+		{
+			"nil args Read input matches only by text",
+			ParsedCommand{Text: "/tmp/somefile"},
+			[]Rule{{Tool: "Read", Pattern: "/tmp/**"}},
+			true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tool := "Bash"
+			if tc.rules[0].Tool != "Bash" {
+				tool = tc.rules[0].Tool
+			}
+			got := matchesRule(tool, tc.cmd, tc.rules)
+			if got != tc.want {
+				t.Errorf("matchesRule(%q) = %v, want %v", tc.cmd.Text, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDenyBeforeAllow(t *testing.T) {
 	allow := []Rule{{Tool: "Bash", Pattern: "git:*"}}
 	deny := []Rule{{Tool: "Bash", Pattern: "git reset *"}}
@@ -915,6 +959,45 @@ func TestDenyBeforeAllow(t *testing.T) {
 			}
 			if result != tc.wantResult {
 				t.Errorf("server decision = %q, want %q", result, tc.wantResult)
+			}
+		})
+	}
+}
+
+// An allow rule may only auto-match a normalized form that executes
+// identically to the original command: normalization strips git global
+// flags — and nothing else. Env assignments and redirects are part of
+// what executes, so they must never be normalized away.
+func TestMatchesRule_NormalizationMustNotHideExecution(t *testing.T) {
+	tests := []struct {
+		name    string
+		cmd     string
+		pattern string
+		want    bool
+	}{
+		// must NOT match: normalized form would hide part of what executes
+		{"interleaved redirect is not stripped", "git > /tmp/x status", "git status", false},
+		{"interleaved stderr redirect is not stripped", "git 2>/dev/null status", "git status", false},
+		{"env assignment prefix is not stripped", "GIT_DIR=/elsewhere git push", "git push", false},
+		{"env assignment plus global flag is not normalized", "FOO=bar git -C /x status", "git status", false},
+
+		// must match: the behavior normalization exists for
+		{"quoted flag value normalizes", `git -C "/path with spaces" status`, "git status", true},
+		{"global flags before subcommand normalize", "git -C /foo --no-pager log", "git log:*", true},
+		// Trailing redirects are outside the CallExpr span and never
+		// reached matching; they must not disable normalization.
+		{"trailing redirect keeps normalization", "git -C /foo status > /tmp/x", "git status", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := false
+			for _, pc := range CollectAllCommands(tc.cmd) {
+				if matchesRule("Bash", pc, []Rule{{Tool: "Bash", Pattern: tc.pattern}}) {
+					got = true
+				}
+			}
+			if got != tc.want {
+				t.Errorf("match(%q, pattern %q) = %v, want %v", tc.cmd, tc.pattern, got, tc.want)
 			}
 		})
 	}

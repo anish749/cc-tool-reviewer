@@ -151,15 +151,16 @@ func MatchesAny(toolName string, toolInput json.RawMessage, rules []Rule) bool {
 	return false
 }
 
-// toolCommands returns the list of command strings to match against rules.
-// For Bash tools, this parses the shell command and extracts every
-// sub-command. For other tools, it returns the single input string.
-func toolCommands(toolName string, toolInput json.RawMessage) []string {
+// toolCommands returns the list of parsed commands to match against rules.
+// For Bash tools, this parses the shell command into an AST and extracts
+// every sub-command with its parsed arguments. For other tools, it returns
+// the single input string as a ParsedCommand.
+func toolCommands(toolName string, toolInput json.RawMessage) []ParsedCommand {
 	input := ToolInputString(toolName, toolInput)
 	if toolName == "Bash" {
 		return CollectAllCommands(input)
 	}
-	return []string{input}
+	return []ParsedCommand{{Text: input}}
 }
 
 // shellSynonyms maps shell command names to their synonyms.
@@ -191,17 +192,20 @@ func inputSynonyms(input string) []string {
 	return out
 }
 
-func matchesRule(toolName, input string, rules []Rule) bool {
-	syns := inputSynonyms(input)
-	normalized := normalize.Command(input)
+func matchesRule(toolName string, cmd ParsedCommand, rules []Rule) bool {
+	syns := inputSynonyms(cmd.Text)
+	normalized := ""
+	if len(cmd.Args) > 0 {
+		normalized = normalize.Command(cmd.Args)
+	}
 	for _, r := range rules {
 		if r.Tool != toolName {
 			continue
 		}
-		if matchPattern(input, r.Pattern) {
+		if matchPattern(cmd.Text, r.Pattern) {
 			return true
 		}
-		if normalized != input && matchPattern(normalized, r.Pattern) {
+		if normalized != "" && normalized != cmd.Text && matchPattern(normalized, r.Pattern) {
 			return true
 		}
 		for _, syn := range syns {
