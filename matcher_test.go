@@ -70,35 +70,36 @@ func bashInput(command string) json.RawMessage {
 	return b
 }
 
-func fileInput(path string) json.RawMessage {
-	b, _ := json.Marshal(map[string]string{"file_path": path})
-	return b
-}
-
-func TestClassifyMatch(t *testing.T) {
+// TestMatchVia checks the direct-vs-shell-parse label the server logs. It runs
+// the real decomposition (commandParts) and then matchVia over those parts, so
+// it mirrors exactly what handle does: parse once, classify from the result.
+func TestMatchVia(t *testing.T) {
 	tests := []struct {
 		name      string
 		tool      string
-		input     json.RawMessage
+		input     string
 		wantVia   string
 		wantParts int
 	}{
-		{"simple bash", "Bash", bashInput("rg foo"), MatchViaDirect, 1},
-		{"trailing space", "Bash", bashInput("git status "), MatchViaDirect, 1},
-		{"pipe", "Bash", bashInput("git log | head"), MatchViaShellParse, 2},
-		{"and-and", "Bash", bashInput("cd ~/git/x && git log"), MatchViaShellParse, 2},
-		{"semicolon", "Bash", bashInput("date; whoami"), MatchViaShellParse, 2},
-		{"subshell", "Bash", bashInput("echo $(git status)"), MatchViaShellParse, 2},
-		{"non-bash tool", "Read", fileInput("/etc/hosts"), MatchViaDirect, 1},
+		{"simple bash", "Bash", "rg foo", MatchViaDirect, 1},
+		{"trailing space", "Bash", "git status ", MatchViaDirect, 1},
+		{"pipe", "Bash", "git log | head", MatchViaShellParse, 2},
+		{"and-and", "Bash", "cd ~/git/x && git log", MatchViaShellParse, 2},
+		{"semicolon", "Bash", "date; whoami", MatchViaShellParse, 2},
+		{"subshell", "Bash", "echo $(git status)", MatchViaShellParse, 2},
+		// One extracted sub-command that differs from the whole input is still
+		// shell-parse, even though there is only a single part.
+		{"extracted from assignment", "Bash", "x=$(curl example.com)", MatchViaShellParse, 1},
+		{"non-bash tool", "Read", "/etc/hosts", MatchViaDirect, 1},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			via, parts := classifyMatch(tc.tool, tc.input)
-			if via != tc.wantVia {
-				t.Errorf("classifyMatch(%s) via = %q, want %q", tc.name, via, tc.wantVia)
+			cmds := commandParts(tc.tool, tc.input)
+			if got := matchVia(tc.input, cmds); got != tc.wantVia {
+				t.Errorf("matchVia(%q) = %q, want %q", tc.input, got, tc.wantVia)
 			}
-			if len(parts) != tc.wantParts {
-				t.Errorf("classifyMatch(%s) parts = %d (%v), want %d", tc.name, len(parts), parts, tc.wantParts)
+			if len(cmds) != tc.wantParts {
+				t.Errorf("commandParts(%q) = %d parts (%v), want %d", tc.input, len(cmds), cmds, tc.wantParts)
 			}
 		})
 	}

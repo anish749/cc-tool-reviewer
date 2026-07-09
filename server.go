@@ -111,15 +111,20 @@ func (s *Server) handle(conn net.Conn) {
 	allow := append(globalAllow, proj.Allow...)
 	deny := append(globalDeny, proj.Deny...)
 
+	// Decompose the tool call once (Bash commands are shell-parsed into their
+	// sub-commands) and reuse the parts for both matching and logging.
+	rawInput := ToolInputString(input.ToolName, input.ToolInput)
+	cmds := commandParts(input.ToolName, rawInput)
+
 	// Deny checked first — specific deny rules must shadow broad allow rules.
 	// e.g. deny [git reset *] must block even when allow has [git:*].
-	if MatchesAny(input.ToolName, input.ToolInput, deny) {
-		s.logLocalMatch(input, "deny")
+	if matchAny(input.ToolName, cmds, deny) {
+		logLocalMatch(input.ToolName, "deny", rawInput, cmds)
 		s.writeResponse(conn, "deny", "matched deny rule", "")
 		return
 	}
-	if MatchesAll(input.ToolName, input.ToolInput, allow) {
-		s.logLocalMatch(input, "allow")
+	if matchAll(input.ToolName, cmds, allow) {
+		logLocalMatch(input.ToolName, "allow", rawInput, cmds)
 		s.writeAllow(conn, "matched allow rule")
 		return
 	}
@@ -164,17 +169,16 @@ func (s *Server) handle(conn net.Conn) {
 	}
 }
 
-// logLocalMatch records a decision resolved locally by the allow/deny rules,
-// distinguishing a direct rule match from one that only held because the shell
-// parser decomposed a compound command (via=shell-parse).
-func (s *Server) logLocalMatch(input HookInput, decision string) {
-	via, parts := classifyMatch(input.ToolName, input.ToolInput)
+// logLocalMatch records a decision resolved locally by the allow/deny rules.
+// cmds is the exact decomposition the match ran against; matchVia turns it into
+// a direct-vs-shell-parse label without re-parsing.
+func logLocalMatch(toolName, decision, rawInput string, cmds []string) {
 	slog.Info("rule matched",
-		"tool", input.ToolName,
+		"tool", toolName,
 		"decision", decision,
-		"via", via,
-		"parts", len(parts),
-		"input", truncate(ToolInputString(input.ToolName, input.ToolInput), 200),
+		"via", matchVia(rawInput, cmds),
+		"parts", len(cmds),
+		"input", truncate(rawInput, 200),
 	)
 }
 
