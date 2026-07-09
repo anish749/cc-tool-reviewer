@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"os"
 	"os/exec"
 	"testing"
 
@@ -11,12 +10,12 @@ import (
 
 // TestLive_CLIReviewer drives the reviewer end-to-end over the CLI-backed LLM
 // client against the real `claude` binary — the path taken when
-// USE_CLAUDE_CLI_CLIENT is set. Opt-in:
+// USE_CLAUDE_CLI_CLIENT is set. Skipped in short mode:
 //
-//	CLAUDE_LIVE_TEST=1 go test . -run TestLive_CLIReviewer -v
+//	go test . -run TestLive_CLIReviewer -v
 func TestLive_CLIReviewer(t *testing.T) {
-	if os.Getenv("CLAUDE_LIVE_TEST") == "" {
-		t.Skip("set CLAUDE_LIVE_TEST=1 to run the live CLI reviewer test")
+	if testing.Short() {
+		t.Skip("skipping live test in short mode")
 	}
 	if _, err := exec.LookPath("claude"); err != nil {
 		t.Skip("claude binary not found on PATH")
