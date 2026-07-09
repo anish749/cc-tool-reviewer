@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -10,31 +9,8 @@ import (
 	"github.com/anish/cc-tool-reviewer/internal/llm"
 )
 
-// fakeLLM is an llm.Client stub. When err is nil, JSON unmarshals raw into out,
-// mimicking a real decoded reply; otherwise it returns err (a transport error
-// or an *llm.ParseError, depending on what the test needs).
-type fakeLLM struct {
-	raw       string
-	err       error
-	gotSystem string
-	gotPrompt string
-}
-
-func (f *fakeLLM) Text(_ context.Context, systemPrompt, prompt string) (string, error) {
-	f.gotSystem, f.gotPrompt = systemPrompt, prompt
-	return f.raw, f.err
-}
-
-func (f *fakeLLM) JSON(_ context.Context, systemPrompt, prompt string, out any) error {
-	f.gotSystem, f.gotPrompt = systemPrompt, prompt
-	if f.err != nil {
-		return f.err
-	}
-	return json.Unmarshal([]byte(f.raw), out)
-}
-
 func TestReview_Allow(t *testing.T) {
-	f := &fakeLLM{raw: `{"decision":"allow","reason":"read-only"}`}
+	f := &llm.Fake{Reply: `{"decision":"allow","reason":"read-only"}`}
 	r := NewReviewer(f, []string{"Bash(ls:*)"})
 
 	got, err := r.Review("Bash", json.RawMessage(`{"command":"ls -la"}`))
@@ -45,11 +21,11 @@ func TestReview_Allow(t *testing.T) {
 		t.Fatalf("decision = %+v", got)
 	}
 	// The reviewer must pass its system prompt and a Tool/Input user message.
-	if !strings.Contains(f.gotSystem, "Bash(ls:*)") {
-		t.Errorf("system prompt missing allow rule: %q", f.gotSystem)
+	if !strings.Contains(f.GotSystem, "Bash(ls:*)") {
+		t.Errorf("system prompt missing allow rule: %q", f.GotSystem)
 	}
-	if f.gotPrompt != "Tool: Bash\nInput: {\"command\":\"ls -la\"}" {
-		t.Errorf("user message = %q", f.gotPrompt)
+	if f.GotPrompt != "Tool: Bash\nInput: {\"command\":\"ls -la\"}" {
+		t.Errorf("user message = %q", f.GotPrompt)
 	}
 }
 
@@ -61,7 +37,7 @@ func TestReview_NormalizesDecision(t *testing.T) {
 		`{"decision":"maybe","reason":"x"}`:   "ask",   // unknown -> ask
 	}
 	for raw, want := range cases {
-		r := NewReviewer(&fakeLLM{raw: raw}, nil)
+		r := NewReviewer(&llm.Fake{Reply: raw}, nil)
 		got, err := r.Review("Bash", json.RawMessage(`{}`))
 		if err != nil {
 			t.Fatalf("Review(%s): %v", raw, err)
@@ -75,7 +51,7 @@ func TestReview_NormalizesDecision(t *testing.T) {
 func TestReview_ParseErrorIsSoftAsk(t *testing.T) {
 	// A malformed model reply must become a soft "ask" (nil error) so the caller
 	// escalates to the user rather than treating it as a broken reviewer.
-	f := &fakeLLM{err: &llm.ParseError{Raw: "garbage", Err: errors.New("bad json")}}
+	f := &llm.Fake{Err: &llm.ParseError{Raw: "garbage", Err: errors.New("bad json")}}
 	r := NewReviewer(f, nil)
 
 	got, err := r.Review("Bash", json.RawMessage(`{}`))
@@ -88,7 +64,7 @@ func TestReview_ParseErrorIsSoftAsk(t *testing.T) {
 }
 
 func TestReview_TransportErrorPropagates(t *testing.T) {
-	f := &fakeLLM{err: errors.New("api unreachable")}
+	f := &llm.Fake{Err: errors.New("api unreachable")}
 	r := NewReviewer(f, nil)
 
 	_, err := r.Review("Bash", json.RawMessage(`{}`))
@@ -97,17 +73,6 @@ func TestReview_TransportErrorPropagates(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "api unreachable") {
 		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestUseCLIClient(t *testing.T) {
-	t.Setenv(EnvUseCLIClient, "")
-	if useCLIClient() {
-		t.Error("expected false when env is empty")
-	}
-	t.Setenv(EnvUseCLIClient, "1")
-	if !useCLIClient() {
-		t.Error("expected true when env is set")
 	}
 }
 

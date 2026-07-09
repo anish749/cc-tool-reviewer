@@ -47,15 +47,11 @@ func NewReviewer(client llm.Client, allowRules []string) *Reviewer {
 // client when USE_CLAUDE_CLI_CLIENT is set, otherwise the Anthropic SDK one.
 func NewReviewLLM() llm.Client {
 	opts := []llm.Option{llm.WithModel(reviewModel), llm.WithTimeout(reviewLLMTimeout)}
-	if useCLIClient() {
+	if os.Getenv(EnvUseCLIClient) != "" {
 		slog.Info("reviewer using claude CLI client")
 		return llm.NewCLIClient(opts...)
 	}
 	return llm.NewAnthropicClient(opts...)
-}
-
-func useCLIClient() bool {
-	return os.Getenv(EnvUseCLIClient) != ""
 }
 
 // Review asks the model to classify a tool call. It returns an "allow"/"ask"
