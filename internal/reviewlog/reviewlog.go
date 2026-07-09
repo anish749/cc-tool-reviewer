@@ -11,9 +11,8 @@ import (
 )
 
 const (
-	maxSizeMB   = 50
-	maxBackups  = 10
-	maxAgeDays  = 90
+	maxSizeMB  = 50
+	maxBackups = 10
 )
 
 // Entry is a single JSONL record written to the review log.
@@ -42,7 +41,6 @@ func New(path string) *Logger {
 			Filename:   path,
 			MaxSize:    maxSizeMB,
 			MaxBackups: maxBackups,
-			MaxAge:     maxAgeDays,
 			Compress:   true,
 		},
 	}

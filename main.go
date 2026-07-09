@@ -28,7 +28,7 @@ const DefaultSocketPath = "/tmp/cc-tool-reviewer.sock"
 func main() {
 	socketPath := flag.String("socket", DefaultSocketPath, "Unix socket path")
 	legacyUI := flag.Bool("legacy-ui", false, "use the legacy AppKit dialog instead of SwiftUI")
-	reviewLogPath := flag.String("review-log", "", "path to a JSONL file for logging tool inputs sent to LLM review")
+	reviewLogPath := flag.String("llm-review-log", "", "path to a JSONL file for logging tool inputs sent to LLM review")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
