@@ -89,40 +89,37 @@ func collectIfClause(ic *syntax.IfClause, src string, out *[]ParsedCommand) {
 	}
 }
 
+// nodeText extracts the original source text for an AST node.
+// Returns "" if the offsets are out of bounds.
+func nodeText(node syntax.Node, src string) string {
+	start := int(node.Pos().Offset())
+	end := int(node.End().Offset())
+	if start >= len(src) || end > len(src) || start >= end {
+		return ""
+	}
+	return strings.TrimSpace(src[start:end])
+}
+
 // addCallExpr extracts both the source text and individual argument texts
 // from a CallExpr node.
 func addCallExpr(call *syntax.CallExpr, src string, out *[]ParsedCommand) {
-	start := int(call.Pos().Offset())
-	end := int(call.End().Offset())
-	if start >= len(src) || end > len(src) || start >= end {
-		return
-	}
-	text := strings.TrimSpace(src[start:end])
+	text := nodeText(call, src)
 	if text == "" {
 		return
 	}
-
 	var args []string
 	for _, w := range call.Args {
-		ws := int(w.Pos().Offset())
-		we := int(w.End().Offset())
-		if ws < len(src) && we <= len(src) && ws < we {
-			args = append(args, src[ws:we])
+		if a := nodeText(w, src); a != "" {
+			args = append(args, a)
 		}
 	}
-
 	*out = append(*out, ParsedCommand{Text: text, Args: args})
 }
 
 // addNodeText extracts the original source text for a node and appends
 // it as a ParsedCommand with no parsed args.
 func addNodeText(node syntax.Node, src string, out *[]ParsedCommand) {
-	start := int(node.Pos().Offset())
-	end := int(node.End().Offset())
-	if start >= len(src) || end > len(src) || start >= end {
-		return
-	}
-	if text := strings.TrimSpace(src[start:end]); text != "" {
+	if text := nodeText(node, src); text != "" {
 		*out = append(*out, ParsedCommand{Text: text})
 	}
 }

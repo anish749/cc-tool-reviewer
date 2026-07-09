@@ -10,7 +10,8 @@ func TestCommand(t *testing.T) {
 	}{
 		{"strip -C", []string{"git", "-C", "/foo", "log", "--oneline"}, "git log --oneline"},
 		{"strip --no-pager", []string{"git", "--no-pager", "diff", "HEAD"}, "git diff HEAD"},
-		{"strip -c with value", []string{"git", "-c", "core.pager=cat", "status"}, "git status"},
+		{"strip -c with = value", []string{"git", "-c", "core.pager=cat", "status"}, "git status"},
+		{"strip -c with space value", []string{"git", "-c", "core.pager", "status"}, "git status"},
 		{"multiple flags", []string{"git", "-C", "/foo", "-c", "x=y", "--no-pager", "log"}, "git log"},
 		{"no global flags", []string{"git", "log", "--oneline"}, "git log --oneline"},
 		{"bare git", []string{"git"}, "git"},

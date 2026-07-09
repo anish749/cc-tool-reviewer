@@ -194,7 +194,10 @@ func inputSynonyms(input string) []string {
 
 func matchesRule(toolName string, cmd ParsedCommand, rules []Rule) bool {
 	syns := inputSynonyms(cmd.Text)
-	normalized := normalize.Command(cmd.Args)
+	normalized := ""
+	if len(cmd.Args) > 0 {
+		normalized = normalize.Command(cmd.Args)
+	}
 	for _, r := range rules {
 		if r.Tool != toolName {
 			continue
@@ -202,7 +205,7 @@ func matchesRule(toolName string, cmd ParsedCommand, rules []Rule) bool {
 		if matchPattern(cmd.Text, r.Pattern) {
 			return true
 		}
-		if normalized != cmd.Text && matchPattern(normalized, r.Pattern) {
+		if normalized != "" && normalized != cmd.Text && matchPattern(normalized, r.Pattern) {
 			return true
 		}
 		for _, syn := range syns {

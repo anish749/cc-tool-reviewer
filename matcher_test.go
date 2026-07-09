@@ -848,6 +848,50 @@ func TestMatchesAny_DenyNormalizedGit(t *testing.T) {
 	}
 }
 
+func TestMatchesRule_NilArgsNoFalseMatch(t *testing.T) {
+	// Non-CallExpr nodes (like [[ ... ]]) and non-Bash tools produce
+	// Args == nil. normalize.Command(nil) returns "", which must not
+	// be matched against patterns — otherwise any pattern with an
+	// empty effective prefix (e.g. ":*", "**") would match everything.
+	tests := []struct {
+		name  string
+		cmd   ParsedCommand
+		rules []Rule
+		want  bool
+	}{
+		{
+			"nil args does not false-match via normalize",
+			ParsedCommand{Text: `[[ -f foo ]]`},
+			[]Rule{{Tool: "Bash", Pattern: "docker:*"}},
+			false,
+		},
+		{
+			"nil args does not match glob",
+			ParsedCommand{Text: "/tmp/somefile"},
+			[]Rule{{Tool: "Read", Pattern: "~/go/pkg/mod/**"}},
+			false,
+		},
+		{
+			"nil args Read input matches only by text",
+			ParsedCommand{Text: "/tmp/somefile"},
+			[]Rule{{Tool: "Read", Pattern: "/tmp/**"}},
+			true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tool := "Bash"
+			if tc.rules[0].Tool != "Bash" {
+				tool = tc.rules[0].Tool
+			}
+			got := matchesRule(tool, tc.cmd, tc.rules)
+			if got != tc.want {
+				t.Errorf("matchesRule(%q) = %v, want %v", tc.cmd.Text, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDenyBeforeAllow(t *testing.T) {
 	allow := []Rule{{Tool: "Bash", Pattern: "git:*"}}
 	deny := []Rule{{Tool: "Bash", Pattern: "git reset *"}}
