@@ -72,6 +72,7 @@ func (r *Reviewer) Review(toolName string, toolInput json.RawMessage) (*ReviewDe
 
 	decision.Decision = strings.ToLower(strings.TrimSpace(decision.Decision))
 	if decision.Decision != "allow" {
+		slog.Info("reviewer falling back to ask", "model_decision", decision.Decision, "reason", decision.Reason)
 		decision.Decision = "ask"
 	}
 	return &decision, nil
