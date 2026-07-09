@@ -2,7 +2,6 @@ package claudecli
 
 import (
 	"context"
-	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -10,14 +9,12 @@ import (
 )
 
 // TestLive_Complete drives the real `claude` binary end-to-end. It makes an
-// actual model call using the machine's Claude login, so it is opt-in:
+// actual model call using the machine's Claude login. Skipped in short mode:
 //
-//	CLAUDE_LIVE_TEST=1 go test ./internal/claudecli/ -run Live -v
-//
-// It is skipped when CLAUDE_LIVE_TEST is unset or `claude` is not on PATH.
+//	go test ./internal/llm/claudecli/ -run Live -v
 func TestLive_Complete(t *testing.T) {
-	if os.Getenv("CLAUDE_LIVE_TEST") == "" {
-		t.Skip("set CLAUDE_LIVE_TEST=1 to run the live claude CLI test")
+	if testing.Short() {
+		t.Skip("skipping live test in short mode")
 	}
 	if _, err := exec.LookPath(binaryName); err != nil {
 		t.Skipf("%q not found on PATH", binaryName)
