@@ -963,3 +963,42 @@ func TestDenyBeforeAllow(t *testing.T) {
 		})
 	}
 }
+
+// An allow rule may only auto-match a normalized form that executes
+// identically to the original command: normalization strips git global
+// flags — and nothing else. Env assignments and redirects are part of
+// what executes, so they must never be normalized away.
+func TestMatchesRule_NormalizationMustNotHideExecution(t *testing.T) {
+	tests := []struct {
+		name    string
+		cmd     string
+		pattern string
+		want    bool
+	}{
+		// must NOT match: normalized form would hide part of what executes
+		{"interleaved redirect is not stripped", "git > /tmp/x status", "git status", false},
+		{"interleaved stderr redirect is not stripped", "git 2>/dev/null status", "git status", false},
+		{"env assignment prefix is not stripped", "GIT_DIR=/elsewhere git push", "git push", false},
+		{"env assignment plus global flag is not normalized", "FOO=bar git -C /x status", "git status", false},
+
+		// must match: the behavior normalization exists for
+		{"quoted flag value normalizes", `git -C "/path with spaces" status`, "git status", true},
+		{"global flags before subcommand normalize", "git -C /foo --no-pager log", "git log:*", true},
+		// Trailing redirects are outside the CallExpr span and never
+		// reached matching; they must not disable normalization.
+		{"trailing redirect keeps normalization", "git -C /foo status > /tmp/x", "git status", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := false
+			for _, pc := range CollectAllCommands(tc.cmd) {
+				if matchesRule("Bash", pc, []Rule{{Tool: "Bash", Pattern: tc.pattern}}) {
+					got = true
+				}
+			}
+			if got != tc.want {
+				t.Errorf("match(%q, pattern %q) = %v, want %v", tc.cmd, tc.pattern, got, tc.want)
+			}
+		})
+	}
+}

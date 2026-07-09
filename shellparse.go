@@ -64,7 +64,7 @@ func collectStmt(stmt *syntax.Stmt, src string, out *[]ParsedCommand) {
 		if len(cmd.Args) == 0 && len(cmd.Assigns) > 0 {
 			collectCmdSubsts(cmd, src, out)
 		} else {
-			addCallExpr(cmd, src, out)
+			addCallExpr(stmt, cmd, src, out)
 			collectCmdSubsts(cmd, src, out)
 		}
 	default:
@@ -102,18 +102,36 @@ func nodeText(node syntax.Node, src string) string {
 
 // addCallExpr extracts both the source text and individual argument texts
 // from a CallExpr node.
-func addCallExpr(call *syntax.CallExpr, src string, out *[]ParsedCommand) {
+func addCallExpr(stmt *syntax.Stmt, call *syntax.CallExpr, src string, out *[]ParsedCommand) {
 	text := nodeText(call, src)
 	if text == "" {
 		return
 	}
-	var args []string
+	*out = append(*out, ParsedCommand{Text: text, Args: callArgs(stmt, call, src)})
+}
+
+// callArgs returns the CallExpr's argument texts, or nil when a
+// joined-args rendering would misrepresent what executes: env-var
+// assignments and redirects placed among the argument words are part
+// of the command's behavior but absent from call.Args, so normalizing
+// from args would let rules match a sanitized command.
+func callArgs(stmt *syntax.Stmt, call *syntax.CallExpr, src string) []string {
+	if len(call.Assigns) > 0 {
+		return nil
+	}
+	end := call.End().Offset()
+	for _, r := range stmt.Redirs {
+		if r.Pos().Offset() < end {
+			return nil
+		}
+	}
+	args := make([]string, 0, len(call.Args))
 	for _, w := range call.Args {
 		if a := nodeText(w, src); a != "" {
 			args = append(args, a)
 		}
 	}
-	*out = append(*out, ParsedCommand{Text: text, Args: args})
+	return args
 }
 
 // addNodeText extracts the original source text for a node and appends
