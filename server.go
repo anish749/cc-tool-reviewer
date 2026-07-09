@@ -135,7 +135,7 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 
-	slog.Info("reviewed", "tool", input.ToolName, "decision", decision.Decision, "reason", decision.Reason)
+	slog.Info("reviewed", "tool", input.ToolName, "decision", decision.Decision, "method", "llm-reviewed", "reason", decision.Reason)
 
 	// If AI says "allow", pass it through
 	if decision.Decision == "allow" {
@@ -153,13 +153,13 @@ func (s *Server) handle(conn net.Conn) {
 
 	switch result.Decision {
 	case promptui.DecisionApprove:
-		slog.Info("user decided", "tool", input.ToolName, "decision", "allow", "feedback", result.Feedback)
+		slog.Info("user decided", "tool", input.ToolName, "decision", "allow", "method", "user-reviewed", "feedback", result.Feedback)
 		s.writeResponse(conn, "allow", "user approved", result.Feedback)
 	case promptui.DecisionDeny:
-		slog.Info("user decided", "tool", input.ToolName, "decision", "deny", "feedback", result.Feedback)
+		slog.Info("user decided", "tool", input.ToolName, "decision", "deny", "method", "user-reviewed", "feedback", result.Feedback)
 		s.writeResponse(conn, "deny", "user denied", result.Feedback)
 	case promptui.DecisionLater:
-		slog.Info("user decided", "tool", input.ToolName, "decision", "later")
+		slog.Info("user decided", "tool", input.ToolName, "decision", "later", "method", "user-reviewed")
 		s.writeResponse(conn, "ask", "deferred to terminal prompt", "")
 	}
 }
@@ -169,6 +169,7 @@ func logLocalMatch(input HookInput, decision string) {
 	slog.Info("rule matched",
 		"tool", input.ToolName,
 		"decision", decision,
+		"method", "static-check",
 		"input", truncate(ToolInputString(input.ToolName, input.ToolInput), 200),
 	)
 }
