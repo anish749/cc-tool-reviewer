@@ -121,6 +121,9 @@ func runTestCases(t *testing.T, socketPath string, tests []testCase) {
 }
 
 func TestIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
 	socketPath := startTestServer(t)
 
 	tests := []testCase{
@@ -217,6 +220,9 @@ func TestIntegration(t *testing.T) {
 }
 
 func TestIntegrationComplex(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
 	socketPath := startTestServer(t)
 
 	complexBashScript := `cd /Users/anish/git/cc-tool-reviewer && ./cc-tool-reviewer &
