@@ -1,17 +1,36 @@
 package main
 
 import (
-	"reflect"
 	"testing"
 )
+
+func cmdTexts(cmds []ParsedCommand) []string {
+	var out []string
+	for _, c := range cmds {
+		out = append(out, c.Text)
+	}
+	return out
+}
+
+func equalTexts(a []string, b []ParsedCommand) bool {
+	texts := cmdTexts(b)
+	if len(a) != len(texts) {
+		return false
+	}
+	for i := range a {
+		if a[i] != texts[i] {
+			return false
+		}
+	}
+	return true
+}
 
 func TestCollectAllCommands_CommentThenCurl(t *testing.T) {
 	cmd := "# fetch recent items\ncurl -s 'http://example.com' -d '{\"limit\":5}'"
 	got := CollectAllCommands(cmd)
-	// Shell comments are not commands — parser should only return curl
 	want := []string{"curl -s 'http://example.com' -d '{\"limit\":5}'"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("CollectAllCommands(%q)\n  got  %v\n  want %v", cmd, got, want)
+	if !equalTexts(want, got) {
+		t.Errorf("CollectAllCommands(%q)\n  got  %v\n  want %v", cmd, cmdTexts(got), want)
 	}
 }
 
@@ -138,8 +157,56 @@ func TestCollectAllCommands(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := CollectAllCommands(tc.cmd)
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("CollectAllCommands(%q)\n  got  %v\n  want %v", tc.cmd, got, tc.want)
+			if !equalTexts(tc.want, got) {
+				t.Errorf("CollectAllCommands(%q)\n  got  %v\n  want %v", tc.cmd, cmdTexts(got), tc.want)
+			}
+		})
+	}
+}
+
+func TestCollectAllCommands_ParsedArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		cmd      string
+		wantArgs [][]string // expected Args for each ParsedCommand
+	}{
+		{
+			"simple command args",
+			"echo hello world",
+			[][]string{{"echo", "hello", "world"}},
+		},
+		{
+			"git with -C flag",
+			"git -C /foo log --oneline",
+			[][]string{{"git", "-C", "/foo", "log", "--oneline"}},
+		},
+		{
+			"compound preserves args",
+			"git status; echo done",
+			[][]string{{"git", "status"}, {"echo", "done"}},
+		},
+		{
+			"for loop inner args",
+			"for d in a b; do echo $d; done",
+			[][]string{{"echo", "$d"}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := CollectAllCommands(tc.cmd)
+			if len(got) != len(tc.wantArgs) {
+				t.Fatalf("got %d commands, want %d: %v", len(got), len(tc.wantArgs), cmdTexts(got))
+			}
+			for i, cmd := range got {
+				if len(cmd.Args) != len(tc.wantArgs[i]) {
+					t.Errorf("cmd[%d] args = %v, want %v", i, cmd.Args, tc.wantArgs[i])
+					continue
+				}
+				for j := range cmd.Args {
+					if cmd.Args[j] != tc.wantArgs[i][j] {
+						t.Errorf("cmd[%d].Args[%d] = %q, want %q", i, j, cmd.Args[j], tc.wantArgs[i][j])
+					}
+				}
 			}
 		})
 	}

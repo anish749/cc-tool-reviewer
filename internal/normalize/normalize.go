@@ -31,28 +31,26 @@ var normalizers = map[string]*CommandNormalizer{
 	"git": &gitNormalizer,
 }
 
-// Command applies the registered normalizer for the input's command
-// name, stripping global flags. Returns the input unchanged if no
-// normalizer matches or no flags are present.
-func Command(input string) string {
-	firstSpace := strings.IndexByte(input, ' ')
-	if firstSpace < 0 {
-		return input
+// Command normalizes a command given its pre-parsed arguments from the
+// shell AST. args[0] is the command name, args[1:] are the arguments.
+// Global flags are stripped and the normalized command is returned as a
+// joined string. Returns the input unchanged if no normalizer matches.
+func Command(args []string) string {
+	if len(args) == 0 {
+		return ""
 	}
-	cmd := input[:firstSpace]
-	n, ok := normalizers[cmd]
+	n, ok := normalizers[args[0]]
 	if !ok {
-		return input
+		return strings.Join(args, " ")
 	}
-	return n.normalize(input[firstSpace+1:])
+	return n.normalize(args[1:])
 }
 
-func (n *CommandNormalizer) normalize(argsStr string) string {
-	tokens := strings.Fields(argsStr)
+func (n *CommandNormalizer) normalize(args []string) string {
 	var rest []string
 
-	for i := 0; i < len(tokens); i++ {
-		tok := tokens[i]
+	for i := 0; i < len(args); i++ {
+		tok := args[i]
 
 		if n.isPrefixFlag(tok) {
 			continue
@@ -68,7 +66,7 @@ func (n *CommandNormalizer) normalize(argsStr string) string {
 		}
 
 		// Not a known global flag — this is the subcommand
-		rest = append(rest, tokens[i:]...)
+		rest = append(rest, args[i:]...)
 		break
 	}
 

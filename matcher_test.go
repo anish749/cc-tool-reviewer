@@ -644,47 +644,47 @@ func TestInputSynonyms(t *testing.T) {
 
 func TestMatchesRule_Synonyms(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		rules   []Rule
-		want    bool
+		name  string
+		cmd   ParsedCommand
+		rules []Rule
+		want  bool
 	}{
 		{
 			"bracket matches test:* via synonym",
-			`[ -f go.mod ]`,
+			ParsedCommand{Text: `[ -f go.mod ]`, Args: []string{"[", "-f", "go.mod", "]"}},
 			[]Rule{{Tool: "Bash", Pattern: "test:*"}},
 			true,
 		},
 		{
 			"test matches [:* via synonym",
-			"test -f go.mod",
+			ParsedCommand{Text: "test -f go.mod", Args: []string{"test", "-f", "go.mod"}},
 			[]Rule{{Tool: "Bash", Pattern: "[:*"}},
 			true,
 		},
 		{
 			"double bracket matches test:* via synonym",
-			`[[ -f go.mod ]]`,
+			ParsedCommand{Text: `[[ -f go.mod ]]`, Args: []string{"[[", "-f", "go.mod", "]]"}},
 			[]Rule{{Tool: "Bash", Pattern: "test:*"}},
 			true,
 		},
 		{
 			"test still matches test:* directly",
-			"test -f go.mod",
+			ParsedCommand{Text: "test -f go.mod", Args: []string{"test", "-f", "go.mod"}},
 			[]Rule{{Tool: "Bash", Pattern: "test:*"}},
 			true,
 		},
 		{
 			"unrelated command does not match via synonym",
-			"echo hello",
+			ParsedCommand{Text: "echo hello", Args: []string{"echo", "hello"}},
 			[]Rule{{Tool: "Bash", Pattern: "test:*"}},
 			false,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := matchesRule("Bash", tc.input, tc.rules)
+			got := matchesRule("Bash", tc.cmd, tc.rules)
 			if got != tc.want {
-				t.Errorf("matchesRule(%q) = %v, want %v", tc.input, got, tc.want)
+				t.Errorf("matchesRule(%q) = %v, want %v", tc.cmd.Text, got, tc.want)
 			}
 		})
 	}
