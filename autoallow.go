@@ -24,8 +24,8 @@ func AutoAllow(toolName string, toolInput json.RawMessage) bool {
 	}
 
 	attrs := handler.logAttrs(toolInput)
-	args := make([]any, 0, len(attrs)*2+2)
-	args = append(args, "tool", toolName)
+	args := make([]any, 0, len(attrs)*2+4)
+	args = append(args, "tool", toolName, "method", "not-checked")
 	for _, a := range attrs {
 		args = append(args, a.Key, a.Value.String())
 	}
