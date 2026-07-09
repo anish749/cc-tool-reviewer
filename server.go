@@ -111,20 +111,15 @@ func (s *Server) handle(conn net.Conn) {
 	allow := append(globalAllow, proj.Allow...)
 	deny := append(globalDeny, proj.Deny...)
 
-	// Decompose the tool call once (Bash commands are shell-parsed into their
-	// sub-commands) and reuse the parts for both matching and logging.
-	rawInput := ToolInputString(input.ToolName, input.ToolInput)
-	cmds := commandParts(input.ToolName, rawInput)
-
 	// Deny checked first — specific deny rules must shadow broad allow rules.
 	// e.g. deny [git reset *] must block even when allow has [git:*].
-	if matchAny(input.ToolName, cmds, deny) {
-		logLocalMatch(input.ToolName, "deny", rawInput, cmds)
+	if MatchesAny(input.ToolName, input.ToolInput, deny) {
+		logLocalMatch(input, "deny")
 		s.writeResponse(conn, "deny", "matched deny rule", "")
 		return
 	}
-	if matchAll(input.ToolName, cmds, allow) {
-		logLocalMatch(input.ToolName, "allow", rawInput, cmds)
+	if MatchesAll(input.ToolName, input.ToolInput, allow) {
+		logLocalMatch(input, "allow")
 		s.writeAllow(conn, "matched allow rule")
 		return
 	}
@@ -169,16 +164,12 @@ func (s *Server) handle(conn net.Conn) {
 	}
 }
 
-// logLocalMatch records a decision resolved locally by the allow/deny rules.
-// cmds is the exact decomposition the match ran against; matchVia turns it into
-// a direct-vs-shell-parse label without re-parsing.
-func logLocalMatch(toolName, decision, rawInput string, cmds []string) {
+// logLocalMatch logs a decision resolved by the allow/deny rules, with no AI call.
+func logLocalMatch(input HookInput, decision string) {
 	slog.Info("rule matched",
-		"tool", toolName,
+		"tool", input.ToolName,
 		"decision", decision,
-		"via", matchVia(rawInput, cmds),
-		"parts", len(cmds),
-		"input", truncate(rawInput, 200),
+		"input", truncate(ToolInputString(input.ToolName, input.ToolInput), 200),
 	)
 }
 

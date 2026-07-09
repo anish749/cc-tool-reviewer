@@ -124,21 +124,7 @@ func expandTilde(path string) string {
 // sub-command (including inside pipes, &&, ||, and subshells) must match.
 // Use for allow lists.
 func MatchesAll(toolName string, toolInput json.RawMessage, rules []Rule) bool {
-	return matchAll(toolName, toolCommands(toolName, toolInput), rules)
-}
-
-// MatchesAny returns true if at least one command in the tool call matches
-// a rule. For Bash, the command is parsed into an AST and any sub-command
-// (including inside pipes, &&, ||, and subshells) matching suffices.
-// Use for deny lists.
-func MatchesAny(toolName string, toolInput json.RawMessage, rules []Rule) bool {
-	return matchAny(toolName, toolCommands(toolName, toolInput), rules)
-}
-
-// matchAll reports whether every already-decomposed command matches at least
-// one rule. Callers that have split the tool call themselves (see
-// commandParts) pass the parts in so the shell command is parsed only once.
-func matchAll(toolName string, cmds []string, rules []Rule) bool {
+	cmds := toolCommands(toolName, toolInput)
 	if len(cmds) == 0 {
 		return false
 	}
@@ -150,10 +136,12 @@ func matchAll(toolName string, cmds []string, rules []Rule) bool {
 	return true
 }
 
-// matchAny reports whether at least one already-decomposed command matches a
-// rule.
-func matchAny(toolName string, cmds []string, rules []Rule) bool {
-	for _, cmd := range cmds {
+// MatchesAny returns true if at least one command in the tool call matches
+// a rule. For Bash, the command is parsed into an AST and any sub-command
+// (including inside pipes, &&, ||, and subshells) matching suffices.
+// Use for deny lists.
+func MatchesAny(toolName string, toolInput json.RawMessage, rules []Rule) bool {
+	for _, cmd := range toolCommands(toolName, toolInput) {
 		if matchesRule(toolName, cmd, rules) {
 			return true
 		}
@@ -165,39 +153,11 @@ func matchAny(toolName string, cmds []string, rules []Rule) bool {
 // For Bash tools, this parses the shell command and extracts every
 // sub-command. For other tools, it returns the single input string.
 func toolCommands(toolName string, toolInput json.RawMessage) []string {
-	return commandParts(toolName, ToolInputString(toolName, toolInput))
-}
-
-// commandParts splits an already-extracted tool input string into the commands
-// to match. For Bash this is the shell-parsed sub-command list; every other
-// tool yields the input itself. The server decomposes once here and reuses the
-// result for both matching and logging.
-func commandParts(toolName, input string) []string {
+	input := ToolInputString(toolName, toolInput)
 	if toolName == "Bash" {
 		return CollectAllCommands(input)
 	}
 	return []string{input}
-}
-
-// How a locally-resolved tool call matched, surfaced in logs. "direct" means
-// the tool input matched a rule as a whole; "shell-parse" means the match
-// relied on the shell parser splitting a compound or nested command into the
-// sub-commands that were checked.
-const (
-	MatchViaDirect     = "direct"
-	MatchViaShellParse = "shell-parse"
-)
-
-// matchVia reports how a match occurred, given the sub-commands the tool call
-// was decomposed into (from commandParts). It is "direct" only when
-// decomposition was a no-op — exactly one sub-command, identical to the whole
-// input. A pipe, &&, ||, ;, subshell, or a command extracted from a
-// substitution all yield "shell-parse".
-func matchVia(input string, cmds []string) string {
-	if len(cmds) == 1 && strings.TrimSpace(cmds[0]) == strings.TrimSpace(input) {
-		return MatchViaDirect
-	}
-	return MatchViaShellParse
 }
 
 func matchesRule(toolName, input string, rules []Rule) bool {

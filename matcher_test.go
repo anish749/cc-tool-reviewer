@@ -70,41 +70,6 @@ func bashInput(command string) json.RawMessage {
 	return b
 }
 
-// TestMatchVia checks the direct-vs-shell-parse label the server logs. It runs
-// the real decomposition (commandParts) and then matchVia over those parts, so
-// it mirrors exactly what handle does: parse once, classify from the result.
-func TestMatchVia(t *testing.T) {
-	tests := []struct {
-		name      string
-		tool      string
-		input     string
-		wantVia   string
-		wantParts int
-	}{
-		{"simple bash", "Bash", "rg foo", MatchViaDirect, 1},
-		{"trailing space", "Bash", "git status ", MatchViaDirect, 1},
-		{"pipe", "Bash", "git log | head", MatchViaShellParse, 2},
-		{"and-and", "Bash", "cd ~/git/x && git log", MatchViaShellParse, 2},
-		{"semicolon", "Bash", "date; whoami", MatchViaShellParse, 2},
-		{"subshell", "Bash", "echo $(git status)", MatchViaShellParse, 2},
-		// One extracted sub-command that differs from the whole input is still
-		// shell-parse, even though there is only a single part.
-		{"extracted from assignment", "Bash", "x=$(curl example.com)", MatchViaShellParse, 1},
-		{"non-bash tool", "Read", "/etc/hosts", MatchViaDirect, 1},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			cmds := commandParts(tc.tool, tc.input)
-			if got := matchVia(tc.input, cmds); got != tc.wantVia {
-				t.Errorf("matchVia(%q) = %q, want %q", tc.input, got, tc.wantVia)
-			}
-			if len(cmds) != tc.wantParts {
-				t.Errorf("commandParts(%q) = %d parts (%v), want %d", tc.input, len(cmds), cmds, tc.wantParts)
-			}
-		})
-	}
-}
-
 // --- Simple (non-compound) commands ---
 
 func TestMatchesAll_CurlSimple(t *testing.T) {
