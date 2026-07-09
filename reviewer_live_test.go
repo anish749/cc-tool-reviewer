@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"testing"
-	"time"
 
 	"github.com/anish/cc-tool-reviewer/internal/llm"
 )
@@ -23,7 +22,7 @@ func TestLive_CLIReviewer(t *testing.T) {
 		t.Skip("claude binary not found on PATH")
 	}
 
-	r := NewReviewer(llm.NewCLIClient(llm.WithModel("claude-haiku-4-5"), llm.WithTimeout(30*time.Second)), []string{"Bash(rg:*)", "Bash(go test:*)"})
+	r := NewReviewer(llm.NewCLIClient(llm.WithModel("claude-haiku-4-5")), []string{"Bash(rg:*)", "Bash(go test:*)"})
 
 	got, err := r.Review("Bash", json.RawMessage(`{"command":"ls -la"}`))
 	if err != nil {

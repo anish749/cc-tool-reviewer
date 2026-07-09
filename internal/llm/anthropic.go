@@ -29,7 +29,7 @@ func NewAnthropicClient(opts ...Option) Client {
 		client: anthropic.NewClient(),
 		model:  anthropic.Model(cfg.model),
 	}
-	return &client{generate: b.generate, timeout: cfg.timeout}
+	return &client{generate: b.generate}
 }
 
 func (b *anthropicBackend) generate(ctx context.Context, systemPrompt, prompt string) (string, error) {

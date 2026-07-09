@@ -3,9 +3,9 @@
 // A Client turns a single (system prompt, user prompt) pair into either plain
 // text or a JSON-decoded value. There is one Client interface over two ways of
 // calling Claude — the Anthropic SDK and the local `claude` CLI. Everything
-// common to both (the model, the timeout, trimming, and JSON decoding) lives
-// here in the shared layer and is configured once via Option; each backend only
-// supplies the raw completion.
+// common to both (the model, trimming, and JSON decoding) lives here in the
+// shared layer and is configured once via Option; each backend only supplies
+// the raw completion.
 package llm
 
 import (
@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/anish/cc-tool-reviewer/internal/llm/claudecli"
 )
@@ -28,8 +27,7 @@ type Client interface {
 // config holds the settings common to every backend. Backends receive resolved
 // values; they never define these themselves.
 type config struct {
-	model   string
-	timeout time.Duration
+	model string
 }
 
 // Option configures a Client. The same options apply to whichever backend is
@@ -38,9 +36,6 @@ type Option func(*config)
 
 // WithModel sets the model both backends use.
 func WithModel(model string) Option { return func(c *config) { c.model = model } }
-
-// WithTimeout bounds each call; a non-positive duration disables the timeout.
-func WithTimeout(d time.Duration) Option { return func(c *config) { c.timeout = d } }
 
 func newConfig(opts ...Option) config {
 	var cfg config
@@ -54,20 +49,12 @@ func newConfig(opts ...Option) config {
 // the single operation each backend supplies; Text and JSON are layered on top.
 type generateFunc func(ctx context.Context, systemPrompt, prompt string) (string, error)
 
-// client is the one Client implementation. Backends differ only in generate;
-// cross-cutting concerns (the call timeout) are applied here, once, so no
-// backend has to implement them.
+// client is the one Client implementation. Backends differ only in generate.
 type client struct {
 	generate generateFunc
-	timeout  time.Duration // applied around every call; <=0 disables
 }
 
 func (c *client) Text(ctx context.Context, systemPrompt, prompt string) (string, error) {
-	if c.timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.timeout)
-		defer cancel()
-	}
 	raw, err := c.generate(ctx, systemPrompt, prompt)
 	if err != nil {
 		return "", err
@@ -90,7 +77,7 @@ func (c *client) JSON(ctx context.Context, systemPrompt, prompt string, out any)
 // machine's existing Claude login instead of an API key.
 func NewCLIClient(opts ...Option) Client {
 	cfg := newConfig(opts...)
-	return &client{generate: claudecli.New(cfg.model).Complete, timeout: cfg.timeout}
+	return &client{generate: claudecli.New(cfg.model).Complete}
 }
 
 // ParseError reports that the model's reply was not valid JSON. It carries the
