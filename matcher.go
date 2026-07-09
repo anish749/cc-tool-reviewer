@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/anish/cc-tool-reviewer/internal/normalize"
 )
 
 // Rule represents a parsed permission rule.
@@ -191,11 +193,15 @@ func inputSynonyms(input string) []string {
 
 func matchesRule(toolName, input string, rules []Rule) bool {
 	syns := inputSynonyms(input)
+	normalized := normalize.Command(input)
 	for _, r := range rules {
 		if r.Tool != toolName {
 			continue
 		}
 		if matchPattern(input, r.Pattern) {
+			return true
+		}
+		if normalized != input && matchPattern(normalized, r.Pattern) {
 			return true
 		}
 		for _, syn := range syns {

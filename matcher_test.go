@@ -759,6 +759,95 @@ func TestMatchesAny_DenySynonym(t *testing.T) {
 	}
 }
 
+// --- Command normalization (git -C, --no-pager, etc.) ---
+
+func TestMatchesAll_NormalizedGit(t *testing.T) {
+	tests := []struct {
+		name  string
+		cmd   string
+		rules []Rule
+		want  bool
+	}{
+		{
+			"git -C with log rule",
+			"git -C /foo log --oneline",
+			[]Rule{{Tool: "Bash", Pattern: "git log *"}},
+			true,
+		},
+		{
+			"git -C with fetch rule",
+			"git -C /foo fetch --prune",
+			[]Rule{{Tool: "Bash", Pattern: "git fetch *"}},
+			true,
+		},
+		{
+			"git --no-pager with diff rule",
+			"git --no-pager diff HEAD",
+			[]Rule{{Tool: "Bash", Pattern: "git diff *"}},
+			true,
+		},
+		{
+			"git -C with config rule",
+			`git -C /some/repo config user.email`,
+			[]Rule{{Tool: "Bash", Pattern: "git config *"}},
+			true,
+		},
+		{
+			"compound with git -C",
+			"git -C /foo fetch --prune 2>&1; echo done",
+			[]Rule{
+				{Tool: "Bash", Pattern: "git fetch *"},
+				{Tool: "Bash", Pattern: "echo:*"},
+			},
+			true,
+		},
+		{
+			"git -C does not match unrelated rule",
+			"git -C /foo log --oneline",
+			[]Rule{{Tool: "Bash", Pattern: "echo:*"}},
+			false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MatchesAll("Bash", bashInput(tc.cmd), tc.rules)
+			if got != tc.want {
+				t.Errorf("MatchesAll = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMatchesAny_DenyNormalizedGit(t *testing.T) {
+	tests := []struct {
+		name  string
+		cmd   string
+		rules []Rule
+		want  bool
+	}{
+		{
+			"git -C reset caught by deny",
+			"git -C /foo reset --hard HEAD",
+			[]Rule{{Tool: "Bash", Pattern: "git reset *"}},
+			true,
+		},
+		{
+			"git -C push --force caught by deny",
+			"git -C /foo push --force",
+			[]Rule{{Tool: "Bash", Pattern: "git push *"}},
+			true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MatchesAny("Bash", bashInput(tc.cmd), tc.rules)
+			if got != tc.want {
+				t.Errorf("MatchesAny = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDenyBeforeAllow(t *testing.T) {
 	allow := []Rule{{Tool: "Bash", Pattern: "git:*"}}
 	deny := []Rule{{Tool: "Bash", Pattern: "git reset *"}}
