@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anish/cc-tool-reviewer/internal/reviewlog"
 	"github.com/anish/cc-tool-reviewer/promptui"
 )
 
@@ -43,15 +44,17 @@ type Server struct {
 	deny      []Rule
 	reviewer  *Reviewer
 	projRules ProjectRulesProvider
+	reviewLog *reviewlog.Logger
 }
 
-func NewServer(listener net.Listener, allow, deny []Rule, reviewer *Reviewer, projRules ProjectRulesProvider) *Server {
+func NewServer(listener net.Listener, allow, deny []Rule, reviewer *Reviewer, projRules ProjectRulesProvider, reviewLog *reviewlog.Logger) *Server {
 	return &Server{
 		listener:  listener,
 		allow:     allow,
 		deny:      deny,
 		reviewer:  reviewer,
 		projRules: projRules,
+		reviewLog: reviewLog,
 	}
 }
 
@@ -140,6 +143,7 @@ func (s *Server) handle(conn net.Conn) {
 	}
 
 	slog.Info("reviewed", "tool", input.ToolName, "decision", decision.Decision, "method", "llm-reviewed", "reason", decision.Reason, "input", string(input.ToolInput))
+	s.reviewLog.Log(input.ToolName, input.ToolInput, decision.Decision, decision.Reason)
 
 	// If AI says "allow", pass it through
 	if decision.Decision == "allow" {

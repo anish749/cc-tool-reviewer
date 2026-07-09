@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anish/cc-tool-reviewer/configwatcher"
+	"github.com/anish/cc-tool-reviewer/internal/reviewlog"
 	"github.com/anish/cc-tool-reviewer/internal/selfupdate"
 	"github.com/anish/cc-tool-reviewer/promptui"
 	"github.com/lmittmann/tint"
@@ -27,6 +28,7 @@ const DefaultSocketPath = "/tmp/cc-tool-reviewer.sock"
 func main() {
 	socketPath := flag.String("socket", DefaultSocketPath, "Unix socket path")
 	legacyUI := flag.Bool("legacy-ui", false, "use the legacy AppKit dialog instead of SwiftUI")
+	reviewLogPath := flag.String("llm-review-log", "", "path to a JSONL file for logging tool inputs sent to LLM review")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -76,7 +78,10 @@ func main() {
 	}
 	defer projCache.Stop()
 
-	server := NewServer(listener, allow, deny, reviewer, projCache)
+	rl := reviewlog.New(*reviewLogPath)
+	defer rl.Close()
+
+	server := NewServer(listener, allow, deny, reviewer, projCache, rl)
 	go server.Serve()
 
 	// Watch config directory for settings changes
