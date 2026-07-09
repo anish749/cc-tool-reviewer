@@ -114,10 +114,12 @@ func (s *Server) handle(conn net.Conn) {
 	// Deny checked first — specific deny rules must shadow broad allow rules.
 	// e.g. deny [git reset *] must block even when allow has [git:*].
 	if MatchesAny(input.ToolName, input.ToolInput, deny) {
+		logLocalMatch(input, "deny")
 		s.writeResponse(conn, "deny", "matched deny rule", "")
 		return
 	}
 	if MatchesAll(input.ToolName, input.ToolInput, allow) {
+		logLocalMatch(input, "allow")
 		s.writeAllow(conn, "matched allow rule")
 		return
 	}
@@ -160,6 +162,15 @@ func (s *Server) handle(conn net.Conn) {
 		slog.Info("user decided", "tool", input.ToolName, "decision", "later")
 		s.writeResponse(conn, "ask", "deferred to terminal prompt", "")
 	}
+}
+
+// logLocalMatch logs a decision resolved by the allow/deny rules, with no AI call.
+func logLocalMatch(input HookInput, decision string) {
+	slog.Info("rule matched",
+		"tool", input.ToolName,
+		"decision", decision,
+		"input", truncate(ToolInputString(input.ToolName, input.ToolInput), 200),
+	)
 }
 
 func (s *Server) writeAllow(conn net.Conn, reason string) {
