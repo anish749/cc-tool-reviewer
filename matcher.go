@@ -160,6 +160,28 @@ func toolCommands(toolName string, toolInput json.RawMessage) []string {
 	return []string{input}
 }
 
+// How a tool call matched the local allow/deny rules. Used for logging so an
+// operator can tell a plain rule match apart from one that only held because
+// the shell parser decomposed a compound command.
+const (
+	MatchViaDirect     = "direct"      // raw tool input matched a rule as-is
+	MatchViaShellParse = "shell-parse" // matched via decomposed sub-commands
+)
+
+// classifyMatch reports how a tool call matched the local rules, plus the
+// sub-commands it was decomposed into. A Bash command that parses into a
+// single sub-command identical to the original input is "direct"; anything
+// the shell parser split or extracted (pipes, &&, ||, ;, subshells, control
+// flow) is "shell-parse". Non-Bash tools are always "direct".
+func classifyMatch(toolName string, toolInput json.RawMessage) (via string, parts []string) {
+	parts = toolCommands(toolName, toolInput)
+	input := strings.TrimSpace(ToolInputString(toolName, toolInput))
+	if len(parts) == 1 && strings.TrimSpace(parts[0]) == input {
+		return MatchViaDirect, parts
+	}
+	return MatchViaShellParse, parts
+}
+
 func matchesRule(toolName, input string, rules []Rule) bool {
 	for _, r := range rules {
 		if r.Tool != toolName {

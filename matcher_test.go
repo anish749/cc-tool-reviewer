@@ -70,6 +70,40 @@ func bashInput(command string) json.RawMessage {
 	return b
 }
 
+func fileInput(path string) json.RawMessage {
+	b, _ := json.Marshal(map[string]string{"file_path": path})
+	return b
+}
+
+func TestClassifyMatch(t *testing.T) {
+	tests := []struct {
+		name      string
+		tool      string
+		input     json.RawMessage
+		wantVia   string
+		wantParts int
+	}{
+		{"simple bash", "Bash", bashInput("rg foo"), MatchViaDirect, 1},
+		{"trailing space", "Bash", bashInput("git status "), MatchViaDirect, 1},
+		{"pipe", "Bash", bashInput("git log | head"), MatchViaShellParse, 2},
+		{"and-and", "Bash", bashInput("cd ~/git/x && git log"), MatchViaShellParse, 2},
+		{"semicolon", "Bash", bashInput("date; whoami"), MatchViaShellParse, 2},
+		{"subshell", "Bash", bashInput("echo $(git status)"), MatchViaShellParse, 2},
+		{"non-bash tool", "Read", fileInput("/etc/hosts"), MatchViaDirect, 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			via, parts := classifyMatch(tc.tool, tc.input)
+			if via != tc.wantVia {
+				t.Errorf("classifyMatch(%s) via = %q, want %q", tc.name, via, tc.wantVia)
+			}
+			if len(parts) != tc.wantParts {
+				t.Errorf("classifyMatch(%s) parts = %d (%v), want %d", tc.name, len(parts), parts, tc.wantParts)
+			}
+		})
+	}
+}
+
 // --- Simple (non-compound) commands ---
 
 func TestMatchesAll_CurlSimple(t *testing.T) {
