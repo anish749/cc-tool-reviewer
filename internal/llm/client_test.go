@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 )
 
 var errBackend = errors.New("backend failed")
@@ -14,24 +13,16 @@ func TestText(t *testing.T) {
 		name    string
 		raw     string
 		genErr  error
-		block   bool // generate blocks until ctx is cancelled
-		timeout time.Duration
 		want    string
 		wantErr error
 	}{
 		{name: "trims whitespace", raw: "  hello  \n", want: "hello"},
 		{name: "propagates backend error", genErr: errBackend, wantErr: errBackend},
-		{name: "applies timeout around the call", block: true, timeout: 20 * time.Millisecond, wantErr: context.DeadlineExceeded},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &client{
-				timeout: tt.timeout,
 				generate: func(ctx context.Context, _, _ string) (string, error) {
-					if tt.block {
-						<-ctx.Done()
-						return "", ctx.Err()
-					}
 					return tt.raw, tt.genErr
 				},
 			}

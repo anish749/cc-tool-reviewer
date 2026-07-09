@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/anish/cc-tool-reviewer/internal/llm"
 )
@@ -18,12 +17,7 @@ import (
 // Anthropic SDK (which authenticates with ANTHROPIC_API_KEY).
 const EnvUseCLIClient = "USE_CLAUDE_CLI_CLIENT"
 
-// reviewModel and reviewLLMTimeout are the settings common to both backends,
-// owned here at the creation site and passed into the llm layer as options.
-const (
-	reviewModel      = "claude-haiku-4-5"
-	reviewLLMTimeout = 15 * time.Second
-)
+const reviewModel = "claude-haiku-4-5"
 
 type ReviewDecision struct {
 	Decision string `json:"decision"` // "allow", "deny", "ask"
@@ -46,7 +40,7 @@ func NewReviewer(client llm.Client, allowRules []string) *Reviewer {
 // NewReviewLLM selects the LLM client from the environment: the CLI-backed
 // client when USE_CLAUDE_CLI_CLIENT is set, otherwise the Anthropic SDK one.
 func NewReviewLLM() llm.Client {
-	opts := []llm.Option{llm.WithModel(reviewModel), llm.WithTimeout(reviewLLMTimeout)}
+	opts := []llm.Option{llm.WithModel(reviewModel)}
 	if os.Getenv(EnvUseCLIClient) != "" {
 		slog.Info("reviewer using claude CLI client")
 		return llm.NewCLIClient(opts...)

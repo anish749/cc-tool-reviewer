@@ -130,7 +130,11 @@ func (s *Server) handle(conn net.Conn) {
 	// "Ask zone" — consult the AI reviewer
 	decision, err := reviewer.Review(input.ToolName, input.ToolInput)
 	if err != nil {
-		slog.Error("reviewer failed, deferring to terminal", "tool", input.ToolName, "err", err)
+		slog.Error("reviewer failed, deferring to terminal",
+			"tool", input.ToolName,
+			"input", ToolInputString(input.ToolName, input.ToolInput),
+			"err", err,
+		)
 		s.writeResponse(conn, "ask", "reviewer error: "+err.Error(), "")
 		return
 	}
