@@ -18,7 +18,7 @@ const checkInterval = 24 * time.Hour
 // Update checks for the latest release and replaces the binary if a newer version exists.
 func Update(currentVersion string, isRelease bool) error {
 	if !isRelease {
-		return fmt.Errorf("auto-update is only available on official release builds; rebuild from source or download a release from https://github.com/%s/releases", repo)
+		return fmt.Errorf("auto-update is only available on official release builds; download a release from https://github.com/%s/releases", repo)
 	}
 	return doUpdate(currentVersion, true)
 }
