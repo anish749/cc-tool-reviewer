@@ -41,11 +41,11 @@ type Server struct {
 	mu        sync.RWMutex
 	allow     []Rule
 	deny      []Rule
-	reviewer  Reviewer
+	reviewer  *Reviewer
 	projRules ProjectRulesProvider
 }
 
-func NewServer(listener net.Listener, allow, deny []Rule, reviewer Reviewer, projRules ProjectRulesProvider) *Server {
+func NewServer(listener net.Listener, allow, deny []Rule, reviewer *Reviewer, projRules ProjectRulesProvider) *Server {
 	return &Server{
 		listener:  listener,
 		allow:     allow,
@@ -57,7 +57,7 @@ func NewServer(listener net.Listener, allow, deny []Rule, reviewer Reviewer, pro
 
 // Reload swaps the allow/deny rules and reviewer with new values.
 // Safe to call while the server is handling requests.
-func (s *Server) Reload(allow, deny []Rule, reviewer Reviewer) {
+func (s *Server) Reload(allow, deny []Rule, reviewer *Reviewer) {
 	s.mu.Lock()
 	s.allow = allow
 	s.deny = deny

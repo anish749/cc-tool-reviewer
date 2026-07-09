@@ -1,11 +1,11 @@
 // Package claudecli wraps the `claude` command-line binary for one-shot,
-// non-interactive LLM calls (plain text or structured JSON).
+// non-interactive completions.
 //
 // It runs `claude -p` (print mode) with the default Claude Code system prompt
 // replaced by the caller's, so the request carries only the caller's tokens and
 // authenticates with the machine's existing Claude login instead of an
-// ANTHROPIC_API_KEY. This mirrors the Anthropic SDK path used elsewhere but
-// routes through the local CLI, letting callers opt in via an environment flag.
+// ANTHROPIC_API_KEY. Complete returns the model's raw reply; higher layers
+// decide how to interpret it (see internal/llm).
 package claudecli
 
 import (
@@ -93,32 +93,10 @@ func New(opts ...Option) *Client {
 	return c
 }
 
-// Text runs prompt with systemPrompt and returns the model's reply as trimmed
-// plain text. An empty systemPrompt keeps Claude Code's default system prompt.
-func (c *Client) Text(ctx context.Context, systemPrompt, prompt string) (string, error) {
-	result, err := c.invoke(ctx, systemPrompt, prompt)
-	if err != nil {
-		return "", fmt.Errorf("text: %w", err)
-	}
-	return strings.TrimSpace(result), nil
-}
-
-// JSON runs prompt with systemPrompt and unmarshals the model's reply into out.
-// It tolerates replies wrapped in ```json ... ``` code fences.
-func (c *Client) JSON(ctx context.Context, systemPrompt, prompt string, out any) error {
-	result, err := c.invoke(ctx, systemPrompt, prompt)
-	if err != nil {
-		return fmt.Errorf("json: %w", err)
-	}
-	clean := stripCodeFences(result)
-	if err := json.Unmarshal([]byte(clean), out); err != nil {
-		return fmt.Errorf("json: parse response: %w", err)
-	}
-	return nil
-}
-
-// invoke spawns the CLI once and returns the model's raw result string.
-func (c *Client) invoke(ctx context.Context, systemPrompt, prompt string) (string, error) {
+// Complete runs prompt with systemPrompt in one-shot mode and returns the
+// model's raw reply. An empty systemPrompt keeps Claude Code's default system
+// prompt. Trimming and JSON decoding are the caller's concern.
+func (c *Client) Complete(ctx context.Context, systemPrompt, prompt string) (string, error) {
 	if c.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, c.timeout)
@@ -173,14 +151,4 @@ func execRunner(ctx context.Context, name string, args ...string) ([]byte, error
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 	return stdout.Bytes(), nil
-}
-
-// stripCodeFences removes a leading ```json / ``` fence and a trailing ``` that
-// a model sometimes wraps around JSON, returning the trimmed inner content.
-func stripCodeFences(s string) string {
-	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(s, "```json")
-	s = strings.TrimPrefix(s, "```")
-	s = strings.TrimSuffix(s, "```")
-	return strings.TrimSpace(s)
 }

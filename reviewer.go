@@ -1,14 +1,18 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"strings"
+
+	"github.com/anish/cc-tool-reviewer/internal/llm"
 )
 
-// EnvUseCLIClient, when set to a non-empty value, routes AI review through the
+// EnvUseCLIClient, when set to a non-empty value, routes review through the
 // local `claude` CLI (using the machine's Claude login) instead of the
 // Anthropic SDK (which authenticates with ANTHROPIC_API_KEY).
 const EnvUseCLIClient = "USE_CLAUDE_CLI_CLIENT"
@@ -19,21 +23,53 @@ type ReviewDecision struct {
 }
 
 // Reviewer decides whether a tool call that missed the permission rules should
-// be allowed or escalated to the user. Implementations differ only in how they
-// reach the model; both share the prompt and response contract defined here.
-type Reviewer interface {
-	Review(toolName string, toolInput json.RawMessage) (*ReviewDecision, error)
+// be allowed or escalated to the user. It owns the reviewer-specific prompt and
+// decision logic; the LLM call is an injected dependency.
+type Reviewer struct {
+	llm          llm.Client
+	systemPrompt string
 }
 
-// NewReviewer builds the reviewer selected by the environment: the CLI-backed
-// reviewer when USE_CLAUDE_CLI_CLIENT is set, otherwise the Anthropic SDK one.
-func NewReviewer(allowRules []string) Reviewer {
-	systemPrompt := buildSystemPrompt(allowRules)
-	if os.Getenv(EnvUseCLIClient) != "" {
+// NewReviewer builds a reviewer backed by the given LLM client.
+func NewReviewer(client llm.Client, allowRules []string) *Reviewer {
+	return &Reviewer{llm: client, systemPrompt: buildSystemPrompt(allowRules)}
+}
+
+// NewReviewLLM selects the LLM client from the environment: the CLI-backed
+// client when USE_CLAUDE_CLI_CLIENT is set, otherwise the Anthropic SDK one.
+func NewReviewLLM() llm.Client {
+	if useCLIClient() {
 		slog.Info("reviewer using claude CLI client")
-		return newCLIReviewer(systemPrompt)
+		return llm.NewCLIClient()
 	}
-	return newAPIReviewer(systemPrompt)
+	return llm.NewAnthropicClient()
+}
+
+func useCLIClient() bool {
+	return os.Getenv(EnvUseCLIClient) != ""
+}
+
+// Review asks the model to classify a tool call. It returns an "allow"/"ask"
+// decision, coercing anything unclear to "ask". A malformed model reply is a
+// soft "ask" (the caller can still surface a dialog); a transport failure is a
+// hard error the caller decides how to handle.
+func (r *Reviewer) Review(toolName string, toolInput json.RawMessage) (*ReviewDecision, error) {
+	var decision ReviewDecision
+	err := r.llm.JSON(context.Background(), r.systemPrompt, buildUserMessage(toolName, toolInput), &decision)
+	if err != nil {
+		var parseErr *llm.ParseError
+		if errors.As(err, &parseErr) {
+			slog.Warn("failed to parse reviewer response", "text", parseErr.Raw)
+			return &ReviewDecision{Decision: "ask", Reason: "could not parse reviewer response"}, nil
+		}
+		return nil, fmt.Errorf("review: %w", err)
+	}
+
+	decision.Decision = strings.ToLower(strings.TrimSpace(decision.Decision))
+	if decision.Decision != "allow" {
+		decision.Decision = "ask"
+	}
+	return &decision, nil
 }
 
 // buildSystemPrompt renders the reviewer instructions with the user's allowed
@@ -68,33 +104,4 @@ Respond with ONLY a valid JSON object. No markdown, no explanation, no code fenc
 // buildUserMessage is the per-call user turn describing the tool invocation.
 func buildUserMessage(toolName string, toolInput json.RawMessage) string {
 	return fmt.Sprintf("Tool: %s\nInput: %s", toolName, string(toolInput))
-}
-
-// parseReviewResponse turns the model's raw reply into a decision. Anything it
-// cannot parse, or any decision other than "allow", becomes "ask" so unclear
-// cases escalate to the user rather than silently passing.
-func parseReviewResponse(text string) *ReviewDecision {
-	text = stripCodeFences(text)
-
-	var decision ReviewDecision
-	if err := json.Unmarshal([]byte(text), &decision); err != nil {
-		slog.Warn("failed to parse reviewer response", "text", text)
-		return &ReviewDecision{Decision: "ask", Reason: "could not parse reviewer response"}
-	}
-
-	decision.Decision = strings.ToLower(strings.TrimSpace(decision.Decision))
-	if decision.Decision != "allow" {
-		decision.Decision = "ask"
-	}
-	return &decision
-}
-
-// stripCodeFences removes a leading ```json / ``` fence and a trailing ``` that
-// the model sometimes wraps around its JSON reply.
-func stripCodeFences(text string) string {
-	text = strings.TrimSpace(text)
-	text = strings.TrimPrefix(text, "```json")
-	text = strings.TrimPrefix(text, "```")
-	text = strings.TrimSuffix(text, "```")
-	return strings.TrimSpace(text)
 }

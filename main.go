@@ -57,7 +57,7 @@ func main() {
 	allow, deny, rawAllow := LoadRules()
 	slog.Info("loaded rules", "allow", len(allow), "deny", len(deny))
 
-	reviewer := NewReviewer(rawAllow)
+	reviewer := NewReviewer(NewReviewLLM(), rawAllow)
 
 	listener, err := net.Listen("unix", *socketPath)
 	if err != nil {
@@ -81,7 +81,7 @@ func main() {
 	configDir := claudeConfigDir()
 	watcher, err := configwatcher.New([]string{configDir}, func() {
 		newAllow, newDeny, newRawAllow := LoadRules()
-		newReviewer := NewReviewer(newRawAllow)
+		newReviewer := NewReviewer(NewReviewLLM(), newRawAllow)
 		server.Reload(newAllow, newDeny, newReviewer)
 		slog.Info("reloaded rules", "allow", len(newAllow), "deny", len(newDeny))
 	})

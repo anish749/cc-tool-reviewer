@@ -5,11 +5,13 @@ import (
 	"os"
 	"os/exec"
 	"testing"
+
+	"github.com/anish/cc-tool-reviewer/internal/llm"
 )
 
-// TestLive_CLIReviewer drives the CLI-backed reviewer end-to-end against the
-// real `claude` binary — the same path taken when USE_CLAUDE_CLI_CLIENT is set.
-// Opt-in, like the claudecli live tests:
+// TestLive_CLIReviewer drives the reviewer end-to-end over the CLI-backed LLM
+// client against the real `claude` binary — the path taken when
+// USE_CLAUDE_CLI_CLIENT is set. Opt-in:
 //
 //	CLAUDE_LIVE_TEST=1 go test . -run TestLive_CLIReviewer -v
 func TestLive_CLIReviewer(t *testing.T) {
@@ -20,7 +22,7 @@ func TestLive_CLIReviewer(t *testing.T) {
 		t.Skip("claude binary not found on PATH")
 	}
 
-	r := newCLIReviewer(buildSystemPrompt([]string{"Bash(rg:*)", "Bash(go test:*)"}))
+	r := NewReviewer(llm.NewCLIClient(), []string{"Bash(rg:*)", "Bash(go test:*)"})
 
 	got, err := r.Review("Bash", json.RawMessage(`{"command":"ls -la"}`))
 	if err != nil {

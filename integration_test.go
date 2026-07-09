@@ -63,7 +63,7 @@ func startTestServer(t *testing.T) string {
 	socketPath := filepath.Join(t.TempDir(), "test.sock")
 
 	allow, deny, rawAllow := LoadRules()
-	reviewer := NewReviewer(rawAllow)
+	reviewer := NewReviewer(NewReviewLLM(), rawAllow)
 
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {

@@ -11,7 +11,7 @@ import (
 )
 
 // fakeRunner records the command it was asked to run and returns canned output,
-// so the full Text/JSON path can be exercised without spawning a process.
+// so Complete can be exercised without spawning a process.
 type fakeRunner struct {
 	gotName string
 	gotArgs []string
@@ -71,16 +71,18 @@ func TestBuildArgs_NoSystemPrompt(t *testing.T) {
 	}
 }
 
-func TestText_Success(t *testing.T) {
-	r := &fakeRunner{stdout: envelopeJSON(t, "  OK  ", false)}
+func TestComplete_Success(t *testing.T) {
+	// Complete returns the envelope result verbatim (no trimming — that is the
+	// caller's concern).
+	r := &fakeRunner{stdout: envelopeJSON(t, "  raw reply  ", false)}
 	c := newTestClient(t, r.run)
 
-	got, err := c.Text(context.Background(), "sys", "user prompt")
+	got, err := c.Complete(context.Background(), "sys", "user prompt")
 	if err != nil {
-		t.Fatalf("Text: %v", err)
+		t.Fatalf("Complete: %v", err)
 	}
-	if got != "OK" {
-		t.Fatalf("Text = %q, want %q", got, "OK")
+	if got != "  raw reply  " {
+		t.Fatalf("Complete = %q, want %q", got, "  raw reply  ")
 	}
 	// The runner must be invoked with the configured binary and prompt.
 	if r.gotName != "claude-test" {
@@ -94,29 +96,11 @@ func TestText_Success(t *testing.T) {
 	}
 }
 
-func TestJSON_Success_Fenced(t *testing.T) {
-	inner := "```json\n{\"decision\":\"allow\",\"reason\":\"read-only\"}\n```"
-	r := &fakeRunner{stdout: envelopeJSON(t, inner, false)}
-	c := newTestClient(t, r.run)
-
-	var out struct {
-		Decision string `json:"decision"`
-		Reason   string `json:"reason"`
-	}
-	if err := c.JSON(context.Background(), "sys", "user", &out); err != nil {
-		t.Fatalf("JSON: %v", err)
-	}
-	if out.Decision != "allow" || out.Reason != "read-only" {
-		t.Fatalf("decoded = %+v", out)
-	}
-}
-
-func TestJSON_ErrorEnvelope(t *testing.T) {
+func TestComplete_ErrorEnvelope(t *testing.T) {
 	r := &fakeRunner{stdout: envelopeJSON(t, "model exploded", true)}
 	c := newTestClient(t, r.run)
 
-	var out map[string]any
-	err := c.JSON(context.Background(), "sys", "user", &out)
+	_, err := c.Complete(context.Background(), "sys", "user")
 	if err == nil {
 		t.Fatal("expected error for is_error envelope")
 	}
@@ -125,11 +109,11 @@ func TestJSON_ErrorEnvelope(t *testing.T) {
 	}
 }
 
-func TestInvoke_MalformedOutput(t *testing.T) {
+func TestComplete_MalformedOutput(t *testing.T) {
 	r := &fakeRunner{stdout: []byte("not json at all")}
 	c := newTestClient(t, r.run)
 
-	_, err := c.Text(context.Background(), "", "user")
+	_, err := c.Complete(context.Background(), "", "user")
 	if err == nil {
 		t.Fatal("expected parse error for malformed CLI output")
 	}
@@ -138,11 +122,11 @@ func TestInvoke_MalformedOutput(t *testing.T) {
 	}
 }
 
-func TestInvoke_RunnerError(t *testing.T) {
+func TestComplete_RunnerError(t *testing.T) {
 	r := &fakeRunner{err: errors.New("exit status 1: boom")}
 	c := newTestClient(t, r.run)
 
-	_, err := c.Text(context.Background(), "", "user")
+	_, err := c.Complete(context.Background(), "", "user")
 	if err == nil {
 		t.Fatal("expected error from runner")
 	}
@@ -151,7 +135,7 @@ func TestInvoke_RunnerError(t *testing.T) {
 	}
 }
 
-func TestInvoke_Timeout(t *testing.T) {
+func TestComplete_Timeout(t *testing.T) {
 	// A runner that blocks until ctx cancellation proves the client applies its
 	// own timeout to the call.
 	slow := func(ctx context.Context, _ string, _ ...string) ([]byte, error) {
@@ -162,7 +146,7 @@ func TestInvoke_Timeout(t *testing.T) {
 	c.run = slow
 
 	start := time.Now()
-	_, err := c.Text(context.Background(), "", "user")
+	_, err := c.Complete(context.Background(), "", "user")
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}
@@ -174,25 +158,11 @@ func TestInvoke_Timeout(t *testing.T) {
 	}
 }
 
-func TestStripCodeFences(t *testing.T) {
-	cases := map[string]string{
-		"plain":            "plain",
-		"```json\n{}\n```": "{}",
-		"```\n{}\n```":     "{}",
-		"  ```json {} ```": "{}",
-	}
-	for in, want := range cases {
-		if got := stripCodeFences(in); got != want {
-			t.Errorf("stripCodeFences(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestExecRunner_BadBinary(t *testing.T) {
 	// The default exec runner must surface an error when the binary is missing,
 	// rather than panicking or returning empty output.
 	c := New(WithBinary("/nonexistent/claude-xyz"), WithTimeout(2*time.Second))
-	if _, err := c.Text(context.Background(), "", "hi"); err == nil {
+	if _, err := c.Complete(context.Background(), "", "hi"); err == nil {
 		t.Fatal("expected error for missing binary")
 	}
 }
