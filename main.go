@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anish/cc-tool-reviewer/configwatcher"
+	"github.com/anish/cc-tool-reviewer/internal/reviewlog"
 	"github.com/anish/cc-tool-reviewer/internal/selfupdate"
 	"github.com/anish/cc-tool-reviewer/promptui"
 	"github.com/lmittmann/tint"
@@ -77,7 +78,10 @@ func main() {
 	}
 	defer projCache.Stop()
 
-	server := NewServer(listener, allow, deny, reviewer, projCache, *reviewLogPath)
+	rl := reviewlog.New(*reviewLogPath)
+	defer rl.Close()
+
+	server := NewServer(listener, allow, deny, reviewer, projCache, rl)
 	go server.Serve()
 
 	// Watch config directory for settings changes

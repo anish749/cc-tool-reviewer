@@ -5,10 +5,10 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"os"
 	"sync"
 	"time"
 
+	"github.com/anish/cc-tool-reviewer/internal/reviewlog"
 	"github.com/anish/cc-tool-reviewer/promptui"
 )
 
@@ -37,34 +37,24 @@ type HookSpecificOutput struct {
 	AdditionalContext        string `json:"additionalContext,omitempty"`
 }
 
-// ReviewLogEntry is a single JSONL record written to the review log file.
-type ReviewLogEntry struct {
-	Timestamp string          `json:"ts"`
-	ToolName  string          `json:"tool"`
-	ToolInput json.RawMessage `json:"input"`
-	Decision  string          `json:"decision"`
-	Reason    string          `json:"reason"`
-}
-
 type Server struct {
-	listener     net.Listener
-	mu           sync.RWMutex
-	allow        []Rule
-	deny         []Rule
-	reviewer     *Reviewer
-	projRules    ProjectRulesProvider
-	reviewLogMu  sync.Mutex
-	reviewLogPath string
+	listener  net.Listener
+	mu        sync.RWMutex
+	allow     []Rule
+	deny      []Rule
+	reviewer  *Reviewer
+	projRules ProjectRulesProvider
+	reviewLog *reviewlog.Logger
 }
 
-func NewServer(listener net.Listener, allow, deny []Rule, reviewer *Reviewer, projRules ProjectRulesProvider, reviewLogPath string) *Server {
+func NewServer(listener net.Listener, allow, deny []Rule, reviewer *Reviewer, projRules ProjectRulesProvider, reviewLog *reviewlog.Logger) *Server {
 	return &Server{
-		listener:      listener,
-		allow:         allow,
-		deny:          deny,
-		reviewer:      reviewer,
-		projRules:     projRules,
-		reviewLogPath: reviewLogPath,
+		listener:  listener,
+		allow:     allow,
+		deny:      deny,
+		reviewer:  reviewer,
+		projRules: projRules,
+		reviewLog: reviewLog,
 	}
 }
 
@@ -153,7 +143,7 @@ func (s *Server) handle(conn net.Conn) {
 	}
 
 	slog.Info("reviewed", "tool", input.ToolName, "decision", decision.Decision, "method", "llm-reviewed", "reason", decision.Reason, "input", string(input.ToolInput))
-	s.writeReviewLog(input.ToolName, input.ToolInput, decision)
+	s.reviewLog.Log(input.ToolName, input.ToolInput, decision.Decision, decision.Reason)
 
 	// If AI says "allow", pass it through
 	if decision.Decision == "allow" {
@@ -190,39 +180,6 @@ func logLocalMatch(input HookInput, decision string) {
 		"method", "static-check",
 		"input", truncate(ToolInputString(input.ToolName, input.ToolInput), 200),
 	)
-}
-
-func (s *Server) writeReviewLog(toolName string, toolInput json.RawMessage, decision *ReviewDecision) {
-	if s.reviewLogPath == "" {
-		return
-	}
-	entry := ReviewLogEntry{
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		ToolName:  toolName,
-		ToolInput: toolInput,
-		Decision:  decision.Decision,
-		Reason:    decision.Reason,
-	}
-	line, err := json.Marshal(entry)
-	if err != nil {
-		slog.Error("failed to marshal review log entry", "err", err)
-		return
-	}
-	line = append(line, '\n')
-
-	s.reviewLogMu.Lock()
-	defer s.reviewLogMu.Unlock()
-
-	f, err := os.OpenFile(s.reviewLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		slog.Error("failed to open review log", "path", s.reviewLogPath, "err", err)
-		return
-	}
-	defer f.Close()
-
-	if _, err := f.Write(line); err != nil {
-		slog.Error("failed to write review log entry", "err", err)
-	}
 }
 
 func (s *Server) writeAllow(conn net.Conn, reason string) {
