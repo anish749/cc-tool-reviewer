@@ -4,7 +4,7 @@ builds:
   - main: .
     binary: cc-tool-reviewer
     ldflags:
-      - -s -w -X main.version={{.Version}}
+      - -s -w -X main.version={{.Version}} -X main.release=true
     goos:
       - darwin
       - linux
