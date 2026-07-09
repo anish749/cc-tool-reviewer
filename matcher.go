@@ -160,13 +160,48 @@ func toolCommands(toolName string, toolInput json.RawMessage) []string {
 	return []string{input}
 }
 
+// shellSynonyms maps shell command names to their synonyms.
+// "[" and "[[" are synonyms of "test" — they are parsed as different
+// command names by mvdan.cc/sh but are semantically equivalent.
+var shellSynonyms = map[string][]string{
+	"[":    {"test"},
+	"[[":   {"test"},
+	"test": {"[", "[["},
+}
+
+// inputSynonyms returns the input string rewritten with each synonym of
+// its first word. Returns nil if no synonyms exist.
+func inputSynonyms(input string) []string {
+	firstWord := input
+	rest := ""
+	if i := strings.IndexByte(input, ' '); i >= 0 {
+		firstWord = input[:i]
+		rest = input[i:]
+	}
+	syns, ok := shellSynonyms[firstWord]
+	if !ok {
+		return nil
+	}
+	out := make([]string, len(syns))
+	for i, s := range syns {
+		out[i] = s + rest
+	}
+	return out
+}
+
 func matchesRule(toolName, input string, rules []Rule) bool {
+	syns := inputSynonyms(input)
 	for _, r := range rules {
 		if r.Tool != toolName {
 			continue
 		}
 		if matchPattern(input, r.Pattern) {
 			return true
+		}
+		for _, syn := range syns {
+			if matchPattern(syn, r.Pattern) {
+				return true
+			}
 		}
 	}
 	return false

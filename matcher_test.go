@@ -612,6 +612,153 @@ func TestMatchesAll_EmptyCommand(t *testing.T) {
 //
 // This test exercises the matcher functions that the server relies on to
 // enforce that ordering.
+// --- Shell command synonym handling ([ / [[ / test) ---
+
+func TestInputSynonyms(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{"bracket to test", "[ -f foo ]", []string{"test -f foo ]"}},
+		{"double bracket to test", "[[ -f foo ]]", []string{"test -f foo ]]"}},
+		{"test to bracket and double bracket", "test -f foo", []string{"[ -f foo", "[[ -f foo"}},
+		{"no synonym", "echo hello", nil},
+		{"bare bracket", "[", []string{"test"}},
+		{"bare test", "test", []string{"[", "[["}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := inputSynonyms(tc.input)
+			if len(got) != len(tc.want) {
+				t.Fatalf("inputSynonyms(%q) = %v, want %v", tc.input, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("inputSynonyms(%q)[%d] = %q, want %q", tc.input, i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestMatchesRule_Synonyms(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		rules   []Rule
+		want    bool
+	}{
+		{
+			"bracket matches test:* via synonym",
+			`[ -f go.mod ]`,
+			[]Rule{{Tool: "Bash", Pattern: "test:*"}},
+			true,
+		},
+		{
+			"test matches [:* via synonym",
+			"test -f go.mod",
+			[]Rule{{Tool: "Bash", Pattern: "[:*"}},
+			true,
+		},
+		{
+			"double bracket matches test:* via synonym",
+			`[[ -f go.mod ]]`,
+			[]Rule{{Tool: "Bash", Pattern: "test:*"}},
+			true,
+		},
+		{
+			"test still matches test:* directly",
+			"test -f go.mod",
+			[]Rule{{Tool: "Bash", Pattern: "test:*"}},
+			true,
+		},
+		{
+			"unrelated command does not match via synonym",
+			"echo hello",
+			[]Rule{{Tool: "Bash", Pattern: "test:*"}},
+			false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := matchesRule("Bash", tc.input, tc.rules)
+			if got != tc.want {
+				t.Errorf("matchesRule(%q) = %v, want %v", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMatchesAll_Synonyms(t *testing.T) {
+	tests := []struct {
+		name  string
+		cmd   string
+		rules []Rule
+		want  bool
+	}{
+		{
+			"for loop with [ matches when test:* in allow list",
+			"echo \"--- checking dirs ---\"\nfor d in a b c; do\n  echo \"== $d ==\"\n  ls -la \"/tmp/$d\" 2>/dev/null | head -5\n  if [ -f \"/tmp/$d/.git\" ]; then cat \"/tmp/$d/.git\"; fi\ndone",
+			[]Rule{
+				{Tool: "Bash", Pattern: "echo:*"},
+				{Tool: "Bash", Pattern: "ls:*"},
+				{Tool: "Bash", Pattern: "head:*"},
+				{Tool: "Bash", Pattern: "cat:*"},
+				{Tool: "Bash", Pattern: "test:*"},
+			},
+			true,
+		},
+		{
+			"if-else with [ matches when test:* in allow list",
+			`if [ -f go.mod ]; then echo found; else echo missing; fi`,
+			[]Rule{
+				{Tool: "Bash", Pattern: "echo:*"},
+				{Tool: "Bash", Pattern: "test:*"},
+			},
+			true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MatchesAll("Bash", bashInput(tc.cmd), tc.rules)
+			if got != tc.want {
+				t.Errorf("MatchesAll = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMatchesAny_DenySynonym(t *testing.T) {
+	tests := []struct {
+		name  string
+		cmd   string
+		rules []Rule
+		want  bool
+	}{
+		{
+			"bracket caught by test:* deny rule",
+			`if [ -f /tmp/secret ]; then echo found; fi`,
+			[]Rule{{Tool: "Bash", Pattern: "test:*"}},
+			true,
+		},
+		{
+			"test caught by [:* deny rule",
+			"test -f /tmp/secret && echo found",
+			[]Rule{{Tool: "Bash", Pattern: "[:*"}},
+			true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MatchesAny("Bash", bashInput(tc.cmd), tc.rules)
+			if got != tc.want {
+				t.Errorf("MatchesAny = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDenyBeforeAllow(t *testing.T) {
 	allow := []Rule{{Tool: "Bash", Pattern: "git:*"}}
 	deny := []Rule{{Tool: "Bash", Pattern: "git reset *"}}
