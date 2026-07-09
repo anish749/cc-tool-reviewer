@@ -135,7 +135,7 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 
-	slog.Info("reviewed", "tool", input.ToolName, "decision", decision.Decision, "method", "llm-reviewed", "reason", decision.Reason)
+	slog.Info("reviewed", "tool", input.ToolName, "decision", decision.Decision, "method", "llm-reviewed", "reason", decision.Reason, "input", string(input.ToolInput))
 
 	// If AI says "allow", pass it through
 	if decision.Decision == "allow" {
