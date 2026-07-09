@@ -70,7 +70,7 @@ func startTestServer(t *testing.T) string {
 		t.Fatalf("listen: %v", err)
 	}
 
-	server := NewServer(listener, allow, deny, reviewer, noopProjectRules{})
+	server := NewServer(listener, allow, deny, reviewer, noopProjectRules{}, "")
 	go server.Serve()
 
 	t.Cleanup(func() {

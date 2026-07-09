@@ -27,6 +27,7 @@ const DefaultSocketPath = "/tmp/cc-tool-reviewer.sock"
 func main() {
 	socketPath := flag.String("socket", DefaultSocketPath, "Unix socket path")
 	legacyUI := flag.Bool("legacy-ui", false, "use the legacy AppKit dialog instead of SwiftUI")
+	reviewLogPath := flag.String("review-log", "", "path to a JSONL file for logging tool inputs sent to LLM review")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -76,7 +77,7 @@ func main() {
 	}
 	defer projCache.Stop()
 
-	server := NewServer(listener, allow, deny, reviewer, projCache)
+	server := NewServer(listener, allow, deny, reviewer, projCache, *reviewLogPath)
 	go server.Serve()
 
 	// Watch config directory for settings changes
