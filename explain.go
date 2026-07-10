@@ -77,25 +77,6 @@ func unmatchedAgainst(e reviewlog.Entry, rules []Rule) []culprit {
 	return out
 }
 
-// matchedAgainst mirrors unmatchedAgainst but collects the sub-commands that DO
-// match — used to report which deny rule caught an anomalous entry.
-func matchedAgainst(e reviewlog.Entry, rules []Rule) []culprit {
-	var out []culprit
-	seen := make(map[string]bool)
-	for _, cmd := range toolCommands(e.ToolName, e.ToolInput) {
-		if !matchesRule(e.ToolName, cmd, rules) {
-			continue
-		}
-		label := culpritLabel(e.ToolName, cmd)
-		if seen[label] {
-			continue
-		}
-		seen[label] = true
-		out = append(out, culprit{Label: label, Text: cmd.Text})
-	}
-	return out
-}
-
 // culpritLabel returns the grouping key for a sub-command: the tool name for
 // non-Bash calls (matched opaquely), otherwise the leading token — with git
 // widened to two tokens, since git rules are subcommand-specific.
@@ -207,94 +188,70 @@ func runExplain(args []string) error {
 	return nil
 }
 
-// printReport renders the full diagnostic report.
+// printReport renders the per-entry root cause. Every logged call reached the
+// llm-reviewed stage because static-check couldn't resolve it; for each one that
+// STILL can't be resolved by the current rules, it names the sub-command that no
+// allow rule matches (the reason MatchesAll fails). Calls the current rules now
+// resolve are collapsed to a single count.
 func printReport(w io.Writer, files []string, entries []reviewlog.Entry, parseErrs []error, allow, deny []Rule) {
-	var stillFails, nowAllowed, nowDenied []reviewlog.Entry
-	diags := make(map[int]diagnosis, len(entries))
-	summary := make(map[string]int)
+	diags := make([]diagnosis, len(entries))
+	var stillFails []int
+	nowAllowed, nowDenied := 0, 0
 
 	for i, e := range entries {
 		d := explainEntry(e, allow, deny)
 		diags[i] = d
 		switch d.Class {
 		case classStillFails:
-			stillFails = append(stillFails, e)
-			for _, c := range d.Unmatched {
-				summary[c.Label]++
-			}
+			stillFails = append(stillFails, i)
 		case classNowAllowed:
-			nowAllowed = append(nowAllowed, e)
+			nowAllowed++
 		case classNowDenied:
-			nowDenied = append(nowDenied, e)
+			nowDenied++
 		}
 	}
 
-	fmt.Fprintf(w, "LLM-fallback report — %d entries from %d file%s\n", len(entries), len(files), plural(len(files)))
-	fmt.Fprintf(w, "Replayed against current global rules (%d allow, %d deny).\n", len(allow), len(deny))
-	fmt.Fprintln(w, "Note: project-level rules aren't reproduced (the log has no CWD), so a few")
-	fmt.Fprintln(w, "entries covered by a project rule at the time may show here as still-failing.")
+	fmt.Fprintf(w, "llm-review log — %d entries from %d file%s\n", len(entries), len(files), plural(len(files)))
+	fmt.Fprintln(w, "Every line is a call that static-check neither allowed nor denied, so it fell")
+	fmt.Fprintln(w, "through to the llm-reviewed stage (a Haiku call, sometimes a prompt).")
+	fmt.Fprintf(w, "Replayed against your current rules: %d are now resolved by static-check and\n", nowAllowed+nowDenied)
+	fmt.Fprintf(w, "omitted (%d allow, %d deny); %d still fall through, each shown with the\n", nowAllowed, nowDenied, len(stillFails))
+	fmt.Fprintln(w, "sub-command that no allow rule matches.")
+	fmt.Fprintln(w, "(Project-level rules aren't replayed — the log records no CWD.)")
 	if len(parseErrs) > 0 {
 		fmt.Fprintf(w, "Skipped %d unparseable log line%s.\n", len(parseErrs), plural(len(parseErrs)))
 	}
 	fmt.Fprintln(w)
 
-	fmt.Fprintf(w, "STILL FALLS THROUGH (%d)\n", len(stillFails))
-	for i, e := range entries {
-		d := diags[i]
-		if d.Class != classStillFails {
-			continue
+	fmt.Fprintf(w, "STILL GO TO llm-reviewed UNDER CURRENT RULES (%d)\n", len(stillFails))
+	if len(stillFails) == 0 {
+		fmt.Fprintln(w, "  none — every logged fallback is now resolved by static-check.")
+		return
+	}
+	for _, i := range stillFails {
+		e := entries[i]
+		fmt.Fprintf(w, "\n  %s  %s  (llm=%s)\n", e.Timestamp, e.ToolName, e.Decision)
+		fmt.Fprintln(w, "    no allow rule matches:")
+		for _, c := range diags[i].Unmatched {
+			fmt.Fprintln(w, indent(blockerText(e.ToolName, c), "      "))
 		}
-		fmt.Fprintf(w, "  %s  %-7s llm=%-5s unmatched: %s\n", e.Timestamp, e.ToolName, e.Decision, joinLabels(d.Unmatched))
-		fmt.Fprintf(w, "      %s\n", truncate(oneLine(commandOf(e)), 160))
-	}
-
-	fmt.Fprintf(w, "\nNOW ALLOWED BY CURRENT RULES (%d)  — logged before your rules covered them\n", len(nowAllowed))
-	for i, e := range entries {
-		if diags[i].Class != classNowAllowed {
-			continue
+		// Show the surrounding command only when it adds context beyond the
+		// blocker(s): a compound Bash line, or a non-Bash tool. Verbatim.
+		if e.ToolName != "Bash" || len(toolCommands(e.ToolName, e.ToolInput)) > 1 {
+			fmt.Fprintln(w, "    full command:")
+			fmt.Fprintln(w, indent(commandOf(e), "      "))
 		}
-		fmt.Fprintf(w, "  %s  %-7s %s\n", e.Timestamp, e.ToolName, truncate(oneLine(commandOf(e)), 120))
-	}
-
-	if len(nowDenied) > 0 {
-		fmt.Fprintf(w, "\nANOMALIES — NOW MATCH A DENY RULE (%d)\n", len(nowDenied))
-		for i, e := range entries {
-			d := diags[i]
-			if d.Class != classNowDenied {
-				continue
-			}
-			fmt.Fprintf(w, "  %s  %-7s denied by: %s\n", e.Timestamp, e.ToolName, joinLabels(matchedAgainst(e, deny)))
-			fmt.Fprintf(w, "      %s\n", truncate(oneLine(commandOf(e)), 160))
-		}
-	}
-
-	fmt.Fprintf(w, "\nSUMMARY — unmatched commands by number of still-failing entries\n")
-	for _, kv := range rankSummary(summary) {
-		fmt.Fprintf(w, "  %4d  %s\n", kv.count, kv.label)
-	}
-	if len(summary) > 0 {
-		fmt.Fprintln(w, "  → add matching allow rules to eliminate these fallbacks")
 	}
 }
 
-type labelCount struct {
-	label string
-	count int
-}
-
-// rankSummary sorts the summary map by count descending, then label ascending.
-func rankSummary(summary map[string]int) []labelCount {
-	out := make([]labelCount, 0, len(summary))
-	for k, v := range summary {
-		out = append(out, labelCount{label: k, count: v})
+// blockerText is the sub-command that no allow rule matched — the concrete
+// reason the call fell through — shown verbatim. Non-Bash tools are matched
+// opaquely, so it names the tool instead.
+func blockerText(toolName string, c culprit) string {
+	if toolName != "Bash" {
+		return "tool " + toolName + " (no allow rule for this tool)"
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].count != out[j].count {
-			return out[i].count > out[j].count
-		}
-		return out[i].label < out[j].label
-	})
-	return out
+	return c.Text
 }
 
 // commandOf returns the Bash command string for display, or the raw tool input
@@ -303,18 +260,14 @@ func commandOf(e reviewlog.Entry) string {
 	return ToolInputString(e.ToolName, e.ToolInput)
 }
 
-func joinLabels(cs []culprit) string {
-	labels := make([]string, len(cs))
-	for i, c := range cs {
-		labels[i] = c.Label
+// indent prefixes every line of s, so a multi-line command stays aligned under
+// its heading without anything being collapsed or truncated.
+func indent(s, prefix string) string {
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		lines[i] = prefix + l
 	}
-	return strings.Join(labels, ", ")
-}
-
-// oneLine collapses newlines and runs of whitespace so a multi-line script
-// prints as a single readable line.
-func oneLine(s string) string {
-	return strings.Join(strings.Fields(s), " ")
+	return strings.Join(lines, "\n")
 }
 
 func plural(n int) string {
