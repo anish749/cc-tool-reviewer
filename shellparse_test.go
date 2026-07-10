@@ -211,3 +211,21 @@ func TestCollectAllCommands_ParsedArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestCollectAllCommands_ControlFlowBuiltins(t *testing.T) {
+	cmd := "while true; do work; break; done; for i in a; do continue 2; done"
+	got := CollectAllCommands(cmd)
+	want := []string{"true", "work"}
+	if !equalTexts(want, got) {
+		t.Errorf("CollectAllCommands(%q)\n  got  %v\n  want %v", cmd, cmdTexts(got), want)
+	}
+}
+
+func TestCollectAllCommands_BreakSubstStillCollected(t *testing.T) {
+	cmd := "for i in a; do break $(evil); done"
+	got := CollectAllCommands(cmd)
+	want := []string{"evil"}
+	if !equalTexts(want, got) {
+		t.Errorf("CollectAllCommands(%q)\n  got  %v\n  want %v", cmd, cmdTexts(got), want)
+	}
+}
