@@ -100,11 +100,18 @@ func nodeText(node syntax.Node, src string) string {
 	return strings.TrimSpace(src[start:end])
 }
 
+// controlFlowBuiltins alter loop control and execute nothing themselves,
+// so they are treated as shell syntax rather than as commands to match.
+var controlFlowBuiltins = map[string]bool{"break": true, "continue": true}
+
 // addCallExpr extracts both the source text and individual argument texts
 // from a CallExpr node.
 func addCallExpr(stmt *syntax.Stmt, call *syntax.CallExpr, src string, out *[]ParsedCommand) {
 	text := nodeText(call, src)
 	if text == "" {
+		return
+	}
+	if f := strings.Fields(text); controlFlowBuiltins[f[0]] {
 		return
 	}
 	*out = append(*out, ParsedCommand{Text: text, Args: callArgs(stmt, call, src)})

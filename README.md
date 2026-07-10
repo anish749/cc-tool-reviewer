@@ -46,7 +46,7 @@ Add to `~/.claude/settings.json`:
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|WebFetch|WebSearch",
+        "matcher": "Bash|WebFetch|WebSearch|Monitor",
         "hooks": [
           {
             "type": "command",
@@ -112,6 +112,8 @@ Settings are hot-reloaded. No need to restart the daemon when you change your al
 - Matches an allow or deny rule → empty response, Claude Code handles it normally
 - Compound command (`&&`, `||`, `;`, multi-line, subshells) → sent to the AI, since prefix matching can't evaluate these
 - No match ("ask zone") → calls Haiku 4.5 with your allow list as context
+
+**Monitor commands.** `Monitor` runs a shell script (its `command` field) in the same environment as Bash, so it's checked the same way: the embedded script is matched against your `Bash(...)` allow/deny rules, and anything unmatched goes to the AI.
 
 **AI says "allow"** → tool call proceeds, no prompt.
 

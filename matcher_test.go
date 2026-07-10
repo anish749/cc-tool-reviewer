@@ -1002,3 +1002,85 @@ func TestMatchesRule_NormalizationMustNotHideExecution(t *testing.T) {
 		})
 	}
 }
+
+// --- Monitor tool (shell script embedded in the "command" field) ---
+
+func monitorInput(command string) json.RawMessage {
+	b, _ := json.Marshal(map[string]any{
+		"command":     command,
+		"description": "watch for errors",
+		"timeout_ms":  60000,
+		"persistent":  false,
+	})
+	return b
+}
+
+func TestMatchesAll_MonitorAllowedByBashRules(t *testing.T) {
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "tail:*"},
+		{Tool: "Bash", Pattern: "grep:*"},
+	}
+
+	got := MatchesAll("Monitor", monitorInput("tail -f app.log | grep --line-buffered ERROR"), rules)
+	if !got {
+		t.Error("Monitor command composed of allowed Bash commands should match")
+	}
+}
+
+func TestMatchesAll_MonitorPartial(t *testing.T) {
+	rules := []Rule{{Tool: "Bash", Pattern: "tail:*"}}
+
+	got := MatchesAll("Monitor", monitorInput("tail -f app.log | grep ERROR"), rules)
+	if got {
+		t.Error("Monitor command with unmatched grep should NOT match")
+	}
+}
+
+func TestMatchesAll_MonitorLoopWithSubshell(t *testing.T) {
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "/Users/anish/cb/claude_utils/clu:*"},
+		{Tool: "Bash", Pattern: "grep:*"},
+		{Tool: "Bash", Pattern: "echo:*"},
+		{Tool: "Bash", Pattern: "seq:*"},
+		{Tool: "Bash", Pattern: "sleep:*"},
+		{Tool: "Bash", Pattern: "test:*"},
+	}
+
+	cmd := "for i in $(seq 1 90); do\n  ip=$(/Users/anish/cb/claude_utils/clu get-last-notebook -no-open 2>&1 | grep -iE 'Jupyter')\n  if [ -n \"$ip\" ]; then echo \"$ip\"; break; fi\n  sleep 10\ndone"
+	got := MatchesAll("Monitor", monitorInput(cmd), rules)
+	if !got {
+		t.Error("Monitor polling loop of allowed commands should match")
+	}
+}
+
+func TestMatchesAny_MonitorDeniedByBashRules(t *testing.T) {
+	deny := []Rule{{Tool: "Bash", Pattern: "git push:*"}}
+
+	cmd := "while true; do git push --force; sleep 5; done"
+	if !MatchesAny("Monitor", monitorInput(cmd), deny) {
+		t.Error("Bash deny rule should catch command embedded in Monitor")
+	}
+}
+
+func TestMatchesAll_MonitorWebSocketVariant(t *testing.T) {
+	b, _ := json.Marshal(map[string]any{
+		"description": "deploy events",
+		"ws":          map[string]any{"url": "wss://example.com/stream"},
+	})
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "*"},
+		{Tool: "Monitor", Pattern: "*"},
+	}
+
+	if MatchesAll("Monitor", b, rules) {
+		t.Error("ws Monitor has no command to inspect; must fall through to review")
+	}
+}
+
+func TestMatchesAll_BashNotGovernedByMonitorRules(t *testing.T) {
+	rules := []Rule{{Tool: "Monitor", Pattern: "rm:*"}}
+
+	if MatchesAll("Bash", bashInput("rm -rf /tmp/x"), rules) {
+		t.Error("Monitor rules must not govern Bash commands")
+	}
+}

@@ -38,7 +38,7 @@ func ToolInputString(toolName string, toolInput json.RawMessage) string {
 	}
 
 	switch toolName {
-	case "Bash":
+	case "Bash", "Monitor":
 		if v, ok := m["command"].(string); ok {
 			return v
 		}
@@ -152,15 +152,29 @@ func MatchesAny(toolName string, toolInput json.RawMessage, rules []Rule) bool {
 }
 
 // toolCommands returns the list of parsed commands to match against rules.
-// For Bash tools, this parses the shell command into an AST and extracts
+// For shell tools, this parses the shell command into an AST and extracts
 // every sub-command with its parsed arguments. For other tools, it returns
 // the single input string as a ParsedCommand.
 func toolCommands(toolName string, toolInput json.RawMessage) []ParsedCommand {
 	input := ToolInputString(toolName, toolInput)
-	if toolName == "Bash" {
+	if isShellTool(toolName) {
 		return CollectAllCommands(input)
 	}
 	return []ParsedCommand{{Text: input}}
+}
+
+// isShellTool reports whether a tool's input embeds a shell script in its
+// "command" field. Monitor's command runs in the same shell environment as
+// Bash. A Monitor call with no command (the ws variant) parses to zero
+// commands and never matches locally — it falls through to AI review.
+func isShellTool(toolName string) bool {
+	return toolName == "Bash" || toolName == "Monitor"
+}
+
+// ruleGoverns reports whether a rule written for ruleTool applies to a call
+// from toolName. Bash rules also govern Monitor's embedded shell command.
+func ruleGoverns(ruleTool, toolName string) bool {
+	return ruleTool == toolName || (toolName == "Monitor" && ruleTool == "Bash")
 }
 
 // shellSynonyms maps shell command names to their synonyms.
@@ -199,7 +213,7 @@ func matchesRule(toolName string, cmd ParsedCommand, rules []Rule) bool {
 		normalized = normalize.Command(cmd.Args)
 	}
 	for _, r := range rules {
-		if r.Tool != toolName {
+		if !ruleGoverns(r.Tool, toolName) {
 			continue
 		}
 		if matchPattern(cmd.Text, r.Pattern) {
