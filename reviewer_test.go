@@ -20,11 +20,11 @@ func TestReview_Allow(t *testing.T) {
 	if got.Decision != "allow" || got.Reason != "read-only" {
 		t.Fatalf("decision = %+v", got)
 	}
-	// The reviewer must pass its system prompt and a Tool/Input user message.
+	// The reviewer must pass its system prompt and a fenced tool-call user message.
 	if !strings.Contains(f.GotSystem, "Bash(ls:*)") {
 		t.Errorf("system prompt missing allow rule: %q", f.GotSystem)
 	}
-	if f.GotPrompt != "Tool: Bash\nInput: {\"command\":\"ls -la\"}" {
+	if !strings.Contains(f.GotPrompt, "<tool_call>\nTool: Bash\nInput: {\"command\":\"ls -la\"}\n</tool_call>") {
 		t.Errorf("user message = %q", f.GotPrompt)
 	}
 }
@@ -90,7 +90,7 @@ func TestNewReviewLLM_BuildsClient(t *testing.T) {
 
 func TestBuildSystemPrompt_IncludesRules(t *testing.T) {
 	sp := buildSystemPrompt([]string{"Bash(ls:*)", "Read(*)"})
-	for _, want := range []string{"Bash(ls:*)", "Read(*)", `"allow"`, `"ask"`} {
+	for _, want := range []string{"Bash(ls:*)", "Read(*)", `"allow"`, `"ask"`, "<tool_call>"} {
 		if !strings.Contains(sp, want) {
 			t.Errorf("system prompt missing %q", want)
 		}
@@ -99,7 +99,7 @@ func TestBuildSystemPrompt_IncludesRules(t *testing.T) {
 
 func TestBuildUserMessage(t *testing.T) {
 	got := buildUserMessage("Bash", []byte(`{"command":"ls"}`))
-	want := "Tool: Bash\nInput: {\"command\":\"ls\"}"
+	want := "Review the tool call below and reply with only your JSON verdict.\n\n<tool_call>\nTool: Bash\nInput: {\"command\":\"ls\"}\n</tool_call>"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
