@@ -966,8 +966,8 @@ func TestDenyBeforeAllow(t *testing.T) {
 
 // An allow rule may only auto-match a normalized form that executes
 // identically to the original command: normalization strips git global
-// flags — and nothing else. Env assignments and redirects are part of
-// what executes, so they must never be normalized away.
+// flags and leading env-var assignments — and nothing else. Redirects
+// are part of what executes, so they must never be normalized away.
 func TestMatchesRule_NormalizationMustNotHideExecution(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -978,8 +978,6 @@ func TestMatchesRule_NormalizationMustNotHideExecution(t *testing.T) {
 		// must NOT match: normalized form would hide part of what executes
 		{"interleaved redirect is not stripped", "git > /tmp/x status", "git status", false},
 		{"interleaved stderr redirect is not stripped", "git 2>/dev/null status", "git status", false},
-		{"env assignment prefix is not stripped", "GIT_DIR=/elsewhere git push", "git push", false},
-		{"env assignment plus global flag is not normalized", "FOO=bar git -C /x status", "git status", false},
 
 		// must match: the behavior normalization exists for
 		{"quoted flag value normalizes", `git -C "/path with spaces" status`, "git status", true},
@@ -987,6 +985,8 @@ func TestMatchesRule_NormalizationMustNotHideExecution(t *testing.T) {
 		// Trailing redirects are outside the CallExpr span and never
 		// reached matching; they must not disable normalization.
 		{"trailing redirect keeps normalization", "git -C /foo status > /tmp/x", "git status", true},
+		{"env assignment prefix is dropped", "GIT_DIR=/elsewhere git push", "git push", true},
+		{"env assignment plus global flag normalizes", "FOO=bar git -C /x status", "git status", true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -998,6 +998,71 @@ func TestMatchesRule_NormalizationMustNotHideExecution(t *testing.T) {
 			}
 			if got != tc.want {
 				t.Errorf("match(%q, pattern %q) = %v, want %v", tc.cmd, tc.pattern, got, tc.want)
+			}
+		})
+	}
+}
+
+// FOO=bar cmd matches the same rules as cmd. A command substitution
+// inside an assignment value executes, so it must match an allow rule
+// on its own — dropping the assignment must never hide a command.
+func TestMatchesAll_EnvAssignments(t *testing.T) {
+	goRules := []Rule{
+		{Tool: "Bash", Pattern: "go get:*"},
+		{Tool: "Bash", Pattern: "go mod:*"},
+	}
+	tests := []struct {
+		name  string
+		cmd   string
+		rules []Rule
+		want  bool
+	}{
+		{"env prefix matches command rule",
+			"GONOSUMCHECK=* GOFLAGS=-mod=mod go get github.com/anish749/oncetask@182deb0",
+			goRules, true},
+		{"multiple env prefixes match command rule",
+			"GONOSUMCHECK=* GOFLAGS=-mod=mod go mod tidy",
+			goRules, true},
+		{"cmdsubst in env value must match a rule itself",
+			"FOO=$(curl example.com) go get x",
+			goRules, false},
+		{"cmdsubst in env value allowed when rule exists",
+			"FOO=$(curl example.com) go get x",
+			append(goRules, Rule{Tool: "Bash", Pattern: "curl:*"}), true},
+		{"backtick in env value must match a rule itself",
+			"FOO=`curl example.com` go get x",
+			goRules, false},
+		{"bare assignment with unmatched cmdsubst",
+			"FOO=$(curl example.com)",
+			goRules, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := MatchesAll("Bash", bashInput(tc.cmd), tc.rules); got != tc.want {
+				t.Errorf("MatchesAll(%q) = %v, want %v", tc.cmd, got, tc.want)
+			}
+		})
+	}
+}
+
+// Deny rules must see through the env-assignment prefix too: a denied
+// command cannot be smuggled behind FOO=bar or inside an assignment's
+// command substitution.
+func TestMatchesAny_EnvAssignments(t *testing.T) {
+	deny := []Rule{{Tool: "Bash", Pattern: "git push:*"}}
+	tests := []struct {
+		name string
+		cmd  string
+		want bool
+	}{
+		{"env prefix does not hide denied command", "GIT_DIR=/elsewhere git push origin main", true},
+		{"denied command inside env value cmdsubst", "FOO=$(git push origin main) go test ./...", true},
+		{"unrelated env command not denied", "GIT_DIR=/elsewhere git status", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := MatchesAny("Bash", bashInput(tc.cmd), deny); got != tc.want {
+				t.Errorf("MatchesAny(%q) = %v, want %v", tc.cmd, got, tc.want)
 			}
 		})
 	}

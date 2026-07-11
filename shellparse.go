@@ -20,6 +20,8 @@ type ParsedCommand struct {
 //   - All binary operators (|, &&, ||) split into separate commands
 //   - for, if, while, case, subshell, and block constructs are descended into
 //   - $() and backtick subshells are recursively descended into
+//   - Leading env-var assignments (FOO=bar cmd) are dropped from the
+//     command text
 //
 // Each command carries its original source text (for prefix matching)
 // and its parsed arguments (for flag-aware normalization).
@@ -92,8 +94,12 @@ func collectIfClause(ic *syntax.IfClause, src string, out *[]ParsedCommand) {
 // nodeText extracts the original source text for an AST node.
 // Returns "" if the offsets are out of bounds.
 func nodeText(node syntax.Node, src string) string {
-	start := int(node.Pos().Offset())
-	end := int(node.End().Offset())
+	return spanText(int(node.Pos().Offset()), int(node.End().Offset()), src)
+}
+
+// spanText extracts the source text between two byte offsets.
+// Returns "" if the offsets are out of bounds.
+func spanText(start, end int, src string) string {
 	if start >= len(src) || end > len(src) || start >= end {
 		return ""
 	}
@@ -105,9 +111,15 @@ func nodeText(node syntax.Node, src string) string {
 var controlFlowBuiltins = map[string]bool{"break": true, "continue": true}
 
 // addCallExpr extracts both the source text and individual argument texts
-// from a CallExpr node.
+// from a CallExpr node. Leading env-var assignments are dropped so rules
+// keyed on the command name match; this is safe because command
+// substitutions in assignment values are collected separately by
+// collectCmdSubsts and must match rules on their own.
 func addCallExpr(stmt *syntax.Stmt, call *syntax.CallExpr, src string, out *[]ParsedCommand) {
 	text := nodeText(call, src)
+	if len(call.Assigns) > 0 && len(call.Args) > 0 {
+		text = spanText(int(call.Args[0].Pos().Offset()), int(call.End().Offset()), src)
+	}
 	if text == "" {
 		return
 	}
@@ -118,14 +130,11 @@ func addCallExpr(stmt *syntax.Stmt, call *syntax.CallExpr, src string, out *[]Pa
 }
 
 // callArgs returns the CallExpr's argument texts, or nil when a
-// joined-args rendering would misrepresent what executes: env-var
-// assignments and redirects placed among the argument words are part
-// of the command's behavior but absent from call.Args, so normalizing
-// from args would let rules match a sanitized command.
+// joined-args rendering would misrepresent what executes: redirects
+// placed among the argument words are part of the command's behavior
+// but absent from call.Args, so normalizing from args would let rules
+// match a sanitized command.
 func callArgs(stmt *syntax.Stmt, call *syntax.CallExpr, src string) []string {
-	if len(call.Assigns) > 0 {
-		return nil
-	}
 	end := call.End().Offset()
 	for _, r := range stmt.Redirs {
 		if r.Pos().Offset() < end {

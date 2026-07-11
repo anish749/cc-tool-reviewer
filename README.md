@@ -111,6 +111,7 @@ Settings are hot-reloaded. No need to restart the daemon when you change your al
 **Bash commands.** Checked against your allow/deny rules locally:
 - Matches an allow or deny rule → empty response, Claude Code handles it normally
 - Compound command (`&&`, `||`, `;`, multi-line, subshells) → sent to the AI, since prefix matching can't evaluate these
+- Leading env-var assignments (`FOO=bar go test`) are dropped before matching; a command substitution in an assignment value (`FOO=$(cmd) go test`) is checked as its own command
 - No match ("ask zone") → calls Haiku 4.5 with your allow list as context
 
 **Monitor commands.** `Monitor` runs a shell script (its `command` field) in the same environment as Bash, so it's checked the same way: the embedded script is matched against your `Bash(...)` allow/deny rules, and anything unmatched goes to the AI.
