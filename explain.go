@@ -230,16 +230,17 @@ func printReport(w io.Writer, files []string, entries []reviewlog.Entry, parseEr
 	}
 	for _, i := range stillFails {
 		e := entries[i]
-		fmt.Fprintf(w, "\n  %s  %s  (llm=%s)\n", e.Timestamp, e.ToolName, e.Decision)
-		fmt.Fprintln(w, "    no allow rule matches:")
-		for _, c := range diags[i].Unmatched {
-			fmt.Fprintln(w, indent(blockerText(e.ToolName, c), "      "))
-		}
-		// Show the surrounding command only when it adds context beyond the
-		// blocker(s): a compound Bash line, or a non-Bash tool. Verbatim.
+		fmt.Fprintf(w, "\n  %s  %s\n", e.Timestamp, e.ToolName)
+		fmt.Fprintf(w, "    [logged]  llm decided: %s\n", e.Decision)
 		if e.ToolName != "Bash" || len(toolCommands(e.ToolName, e.ToolInput)) > 1 {
-			fmt.Fprintln(w, "    full command:")
-			fmt.Fprintln(w, indent(commandOf(e), "      "))
+			fmt.Fprintln(w, "    [logged]  full command:")
+			fmt.Fprintln(w, indent(commandOf(e), "              "))
+		} else {
+			fmt.Fprintf(w, "    [logged]  command: %s\n", commandOf(e))
+		}
+		fmt.Fprintln(w, "    [replay]  no allow rule matches:")
+		for _, c := range diags[i].Unmatched {
+			fmt.Fprintln(w, indent(blockerText(e.ToolName, c), "              "))
 		}
 	}
 }
