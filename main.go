@@ -46,6 +46,14 @@ func main() {
 		os.Exit(0)
 	}
 
+	if flag.NArg() > 0 && flag.Arg(0) == "explain" {
+		if err := runExplain(flag.Args()[1:]); err != nil {
+			fmt.Fprintf(os.Stderr, "explain failed: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{
 		TimeFormat: time.Kitchen,
 	})))
