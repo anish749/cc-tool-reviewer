@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -111,6 +113,56 @@ func TestExplainEntry_GitSubcommandLabel(t *testing.T) {
 	if !hasLabel(d, "git rebase") {
 		t.Fatalf("unmatched = %v, want git rebase", labels(d))
 	}
+}
+
+func TestPrintReport_NoReplay(t *testing.T) {
+	allow := mkRules(t, "Bash(ls:*)")
+	entries := []reviewlog.Entry{bashEntry("curl http://example.com")}
+
+	var buf bytes.Buffer
+	printReport(&buf, []string{"test.log"}, entries, nil, allow, nil, nil)
+
+	out := buf.String()
+	if !strings.Contains(out, "STILL GO TO llm-reviewed") {
+		t.Fatal("missing still-fails section")
+	}
+	if strings.Contains(out, "replayed through LLM reviewer") {
+		t.Fatal("replay output should not appear without --replay")
+	}
+}
+
+func TestPrintReport_WithReplay(t *testing.T) {
+	allow := mkRules(t, "Bash(ls:*)")
+	entries := []reviewlog.Entry{bashEntry("curl http://example.com")}
+
+	reviewer := NewReviewer(&stubLLMClient{response: `{"decision":"allow","reason":"test reason"}`}, nil)
+
+	var buf bytes.Buffer
+	printReport(&buf, []string{"test.log"}, entries, nil, allow, nil, reviewer)
+
+	out := buf.String()
+	if !strings.Contains(out, `replayed through LLM reviewer: allow`) {
+		t.Fatalf("missing replay decision in output:\n%s", out)
+	}
+	if !strings.Contains(out, `"test reason"`) {
+		t.Fatalf("missing replay reason in output:\n%s", out)
+	}
+	if !strings.Contains(out, "Replayed 1 through LLM reviewer (1 allow, 0 ask, 0 error") {
+		t.Fatalf("missing replay summary in output:\n%s", out)
+	}
+}
+
+// stubLLMClient is a test double for llm.Client that returns a canned response.
+type stubLLMClient struct {
+	response string
+}
+
+func (s *stubLLMClient) Text(_ context.Context, _, _ string) (string, error) {
+	return s.response, nil
+}
+
+func (s *stubLLMClient) JSON(_ context.Context, _, _ string, out any) error {
+	return json.Unmarshal([]byte(s.response), out)
 }
 
 func TestParseEntries(t *testing.T) {

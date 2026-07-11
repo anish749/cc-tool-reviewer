@@ -14,6 +14,12 @@ import (
 	"github.com/anish/cc-tool-reviewer/internal/reviewlog"
 )
 
+type replayResult struct {
+	Decision string // "allow" or "ask"
+	Reason   string
+	Err      error
+}
+
 // entryClass is the verdict of replaying a logged tool call through the
 // current static rules.
 type entryClass int
@@ -165,13 +171,18 @@ func resolveLogFiles(args []string) ([]string, error) {
 }
 
 // runExplain is the entry point for the `explain` subcommand.
-func runExplain(args []string) error {
+func runExplain(args []string, replay bool) error {
 	files, err := resolveLogFiles(args)
 	if err != nil {
 		return err
 	}
 
-	allow, deny, _ := LoadRules()
+	allow, deny, rawAllow := LoadRules()
+
+	var reviewer *Reviewer
+	if replay {
+		reviewer = NewReviewer(NewReviewLLM(), rawAllow)
+	}
 
 	var entries []reviewlog.Entry
 	var parseErrs []error
@@ -184,7 +195,7 @@ func runExplain(args []string) error {
 		parseErrs = append(parseErrs, errs...)
 	}
 
-	printReport(os.Stdout, files, entries, parseErrs, allow, deny)
+	printReport(os.Stdout, files, entries, parseErrs, allow, deny, reviewer)
 	return nil
 }
 
@@ -193,7 +204,7 @@ func runExplain(args []string) error {
 // STILL can't be resolved by the current rules, it names the sub-command that no
 // allow rule matches (the reason MatchesAll fails). Calls the current rules now
 // resolve are collapsed to a single count.
-func printReport(w io.Writer, files []string, entries []reviewlog.Entry, parseErrs []error, allow, deny []Rule) {
+func printReport(w io.Writer, files []string, entries []reviewlog.Entry, parseErrs []error, allow, deny []Rule, reviewer *Reviewer) {
 	diags := make([]diagnosis, len(entries))
 	var stillFails []int
 	nowAllowed, nowDenied := 0, 0
@@ -211,6 +222,19 @@ func printReport(w io.Writer, files []string, entries []reviewlog.Entry, parseEr
 		}
 	}
 
+	replays := make(map[int]replayResult)
+	if reviewer != nil && len(stillFails) > 0 {
+		for _, i := range stillFails {
+			e := entries[i]
+			dec, err := reviewer.Review(e.ToolName, e.ToolInput)
+			if err != nil {
+				replays[i] = replayResult{Err: err}
+			} else {
+				replays[i] = replayResult{Decision: dec.Decision, Reason: dec.Reason}
+			}
+		}
+	}
+
 	fmt.Fprintf(w, "llm-review log — %d entries from %d file%s\n", len(entries), len(files), plural(len(files)))
 	fmt.Fprintln(w, "Every line is a call that static-check neither allowed nor denied, so it fell")
 	fmt.Fprintln(w, "through to the llm-reviewed stage (a Haiku call, sometimes a prompt).")
@@ -220,6 +244,21 @@ func printReport(w io.Writer, files []string, entries []reviewlog.Entry, parseEr
 	fmt.Fprintln(w, "(Project-level rules aren't replayed — the log records no CWD.)")
 	if len(parseErrs) > 0 {
 		fmt.Fprintf(w, "Skipped %d unparseable log line%s.\n", len(parseErrs), plural(len(parseErrs)))
+	}
+	if len(replays) > 0 {
+		llmAllow, llmAsk, llmErr := 0, 0, 0
+		for _, r := range replays {
+			switch {
+			case r.Err != nil:
+				llmErr++
+			case r.Decision == "allow":
+				llmAllow++
+			default:
+				llmAsk++
+			}
+		}
+		fmt.Fprintf(w, "Replayed %d through LLM reviewer (%d allow, %d ask, %d error%s).\n",
+			len(replays), llmAllow, llmAsk, llmErr, plural(llmErr))
 	}
 	fmt.Fprintln(w)
 
@@ -235,11 +274,16 @@ func printReport(w io.Writer, files []string, entries []reviewlog.Entry, parseEr
 		for _, c := range diags[i].Unmatched {
 			fmt.Fprintln(w, indent(blockerText(e.ToolName, c), "      "))
 		}
-		// Show the surrounding command only when it adds context beyond the
-		// blocker(s): a compound Bash line, or a non-Bash tool. Verbatim.
 		if e.ToolName != "Bash" || len(toolCommands(e.ToolName, e.ToolInput)) > 1 {
 			fmt.Fprintln(w, "    full command:")
 			fmt.Fprintln(w, indent(commandOf(e), "      "))
+		}
+		if r, ok := replays[i]; ok {
+			if r.Err != nil {
+				fmt.Fprintf(w, "    replayed through LLM reviewer: error — %v\n", r.Err)
+			} else {
+				fmt.Fprintf(w, "    replayed through LLM reviewer: %s — %q\n", r.Decision, r.Reason)
+			}
 		}
 	}
 }
