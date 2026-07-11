@@ -968,9 +968,6 @@ func TestDenyBeforeAllow(t *testing.T) {
 // identically to the original command: normalization strips git global
 // flags and leading env-var assignments — and nothing else. Redirects
 // are part of what executes, so they must never be normalized away.
-// Env assignments are dropped from the matched text, but command
-// substitutions inside their values are collected as separate commands
-// that must match rules on their own (see TestMatchesAll_EnvAssignments).
 func TestMatchesRule_NormalizationMustNotHideExecution(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -1006,11 +1003,9 @@ func TestMatchesRule_NormalizationMustNotHideExecution(t *testing.T) {
 	}
 }
 
-// Leading env-var assignments are dropped before matching: FOO=bar cmd
-// matches the same rules as cmd. A command substitution inside an
-// assignment value executes, so it is collected as a separate command
-// and must match an allow rule on its own — dropping the assignment
-// must never hide a command from matching.
+// FOO=bar cmd matches the same rules as cmd. A command substitution
+// inside an assignment value executes, so it must match an allow rule
+// on its own — dropping the assignment must never hide a command.
 func TestMatchesAll_EnvAssignments(t *testing.T) {
 	goRules := []Rule{
 		{Tool: "Bash", Pattern: "go get:*"},

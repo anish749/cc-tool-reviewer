@@ -21,8 +21,7 @@ type ParsedCommand struct {
 //   - for, if, while, case, subshell, and block constructs are descended into
 //   - $() and backtick subshells are recursively descended into
 //   - Leading env-var assignments (FOO=bar cmd) are dropped from the
-//     command text; command substitutions in assignment values are
-//     collected as separate commands
+//     command text
 //
 // Each command carries its original source text (for prefix matching)
 // and its parsed arguments (for flag-aware normalization).
@@ -112,9 +111,9 @@ func spanText(start, end int, src string) string {
 var controlFlowBuiltins = map[string]bool{"break": true, "continue": true}
 
 // addCallExpr extracts both the source text and individual argument texts
-// from a CallExpr node. Leading env-var assignments are dropped so that
-// rules keyed on the command name match; command substitutions inside
-// assignment values are still collected as separate commands by
+// from a CallExpr node. Leading env-var assignments are dropped so rules
+// keyed on the command name match; this is safe because command
+// substitutions in assignment values are collected separately by
 // collectCmdSubsts and must match rules on their own.
 func addCallExpr(stmt *syntax.Stmt, call *syntax.CallExpr, src string, out *[]ParsedCommand) {
 	text := nodeText(call, src)
