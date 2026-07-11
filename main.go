@@ -47,10 +47,7 @@ func main() {
 	}
 
 	if flag.NArg() > 0 && flag.Arg(0) == "explain" {
-		explainFlags := flag.NewFlagSet("explain", flag.ExitOnError)
-		replay := explainFlags.Bool("replay", false, "re-run entries through the LLM reviewer with current code")
-		explainFlags.Parse(flag.Args()[1:])
-		if err := runExplain(explainFlags.Args(), *replay); err != nil {
+		if err := runExplain(flag.Args()[1:]); err != nil {
 			fmt.Fprintf(os.Stderr, "explain failed: %v\n", err)
 			os.Exit(1)
 		}
