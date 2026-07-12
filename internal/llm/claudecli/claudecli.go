@@ -21,6 +21,14 @@ import (
 // binaryName is the CLI looked up on PATH.
 const binaryName = "claude"
 
+// Available reports whether the `claude` binary can be found on PATH.
+func Available() error {
+	if _, err := exec.LookPath(binaryName); err != nil {
+		return fmt.Errorf("the %q CLI is not on PATH: %w", binaryName, err)
+	}
+	return nil
+}
+
 // envelope is the JSON object emitted by `claude --output-format json`.
 type envelope struct {
 	Type    string `json:"type"`

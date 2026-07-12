@@ -12,11 +12,6 @@ import (
 	"github.com/anish/cc-tool-reviewer/internal/llm"
 )
 
-// EnvUseCLIClient, when set to a non-empty value, routes review through the
-// local `claude` CLI (using the machine's Claude login) instead of the
-// Anthropic SDK (which authenticates with ANTHROPIC_API_KEY).
-const EnvUseCLIClient = "USE_CLAUDE_CLI_CLIENT"
-
 const reviewModel = "claude-haiku-4-5"
 
 type ReviewDecision struct {
@@ -41,7 +36,7 @@ func NewReviewer(client llm.Client, allowRules []string) *Reviewer {
 // client when USE_CLAUDE_CLI_CLIENT is set, otherwise the Anthropic SDK one.
 func NewReviewLLM() llm.Client {
 	opts := []llm.Option{llm.WithModel(reviewModel)}
-	if os.Getenv(EnvUseCLIClient) != "" {
+	if os.Getenv(llm.EnvUseCLIClient) != "" {
 		slog.Info("reviewer using claude CLI client")
 		return llm.NewCLIClient(opts...)
 	}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anish/cc-tool-reviewer/configwatcher"
+	"github.com/anish/cc-tool-reviewer/internal/llm"
 	"github.com/anish/cc-tool-reviewer/internal/logging"
 	"github.com/anish/cc-tool-reviewer/internal/reviewlog"
 	"github.com/anish/cc-tool-reviewer/internal/selfupdate"
@@ -44,6 +45,13 @@ func main() {
 			os.Exit(1)
 		}
 		os.Exit(0)
+	}
+
+	// Fail fast on a missing reviewer backend: without this the process
+	// serves fine and every review fails at call time instead.
+	if err := llm.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "cc-tool-reviewer: %v\n", err)
+		os.Exit(1)
 	}
 
 	logging.Setup()
