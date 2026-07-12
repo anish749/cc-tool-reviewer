@@ -29,6 +29,7 @@ func main() {
 	socketPath := flag.String("socket", DefaultSocketPath, "Unix socket path")
 	legacyUI := flag.Bool("legacy-ui", false, "use the legacy AppKit dialog instead of SwiftUI")
 	reviewLogPath := flag.String("llm-review-log", "", "path to a JSONL file for logging tool inputs sent to LLM review")
+	daemonLogPath := flag.String("log-file", DefaultDaemonLogPath, "daemon mode: file the background process's log output is appended to")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -46,9 +47,20 @@ func main() {
 		os.Exit(0)
 	}
 
-	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{
-		TimeFormat: time.Kitchen,
-	})))
+	if flag.NArg() > 0 && flag.Arg(0) == "daemon" {
+		if code := runDaemonCommand(flag.Arg(1), *socketPath, *daemonLogPath); code >= 0 {
+			os.Exit(code)
+		}
+		// code < 0: we are the re-executed background child — run the server.
+	}
+
+	logOpts := &tint.Options{TimeFormat: time.Kitchen}
+	if !isTerminal(os.Stderr) {
+		// Logging to a file (daemon mode): full dates, no ANSI colors.
+		logOpts.TimeFormat = time.DateTime
+		logOpts.NoColor = true
+	}
+	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, logOpts)))
 
 	// Background update check (never blocks)
 	selfupdate.AutoCheck(version, release == "true")
@@ -103,6 +115,11 @@ func main() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 
 	<-sig
-	fmt.Println()
+	if isTerminal(os.Stdout) {
+		fmt.Println()
+	}
 	slog.Info("shutting down")
+	if os.Getenv(daemonChildEnv) != "" {
+		os.Remove(pidFilePath(*socketPath))
+	}
 }
