@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anish/cc-tool-reviewer/configwatcher"
+	"github.com/anish/cc-tool-reviewer/internal/daemon"
 	"github.com/anish/cc-tool-reviewer/internal/llm"
 	"github.com/anish/cc-tool-reviewer/internal/logging"
 	"github.com/anish/cc-tool-reviewer/internal/reviewlog"
@@ -30,6 +31,7 @@ func main() {
 	socketPath := flag.String("socket", DefaultSocketPath, "Unix socket path")
 	legacyUI := flag.Bool("legacy-ui", false, "use the legacy AppKit dialog instead of SwiftUI")
 	reviewLogPath := flag.String("llm-review-log", "", "path to a JSONL file for logging tool inputs sent to LLM review")
+	daemonLogPath := flag.String("log-file", daemon.DefaultLogPath, "daemon mode: file the background process's log output is appended to")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -47,14 +49,39 @@ func main() {
 		os.Exit(0)
 	}
 
+	daemonVerb := ""
+	if flag.NArg() > 0 && flag.Arg(0) == "daemon" {
+		daemonVerb = flag.Arg(1)
+	}
+
 	// Fail fast on a missing reviewer backend: without this the process
-	// serves fine and every review fails at call time instead.
-	if err := llm.Validate(); err != nil {
-		fmt.Fprintf(os.Stderr, "cc-tool-reviewer: %v\n", err)
-		os.Exit(1)
+	// serves fine and every review fails at call time instead. Only paths
+	// that end up serving need a backend — stop/status manage an existing
+	// process and must work without credentials.
+	if daemonVerb == "" || daemonVerb == "start" {
+		if err := llm.Validate(); err != nil {
+			fmt.Fprintf(os.Stderr, "cc-tool-reviewer: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	// The re-executed background child sees the same `daemon start` args;
+	// it skips dispatch and runs the server below.
+	if daemonVerb != "" && !daemon.IsChild() {
+		os.Exit(daemon.Run(daemonVerb, *socketPath, *daemonLogPath))
 	}
 
 	logging.Setup()
+
+	var daemonState *daemon.State
+	if daemon.IsChild() {
+		st, err := daemon.WriteState(*socketPath, *daemonLogPath)
+		if err != nil {
+			log.Fatalf("daemon state: %v", err)
+		}
+		daemonState = st
+		defer daemonState.Remove()
+	}
 
 	// Background update check (never blocks)
 	selfupdate.AutoCheck(version, release == "true")
@@ -109,6 +136,8 @@ func main() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 
 	<-sig
-	fmt.Println()
+	if logging.IsTerminal(os.Stdout) {
+		fmt.Println()
+	}
 	slog.Info("shutting down")
 }

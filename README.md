@@ -81,14 +81,31 @@ USE_CLAUDE_CLI_CLIENT=1 cc-tool-reviewer
 
 ### 4. Start the daemon
 
+Run it in the background:
+
+```bash
+cc-tool-reviewer daemon start
+```
+
+`start` detaches from the terminal and returns immediately. It's idempotent — if a daemon is already serving the socket it says so and exits 0, so it's safe in a login script. The background process appends JSON-line logs to `/tmp/cc-tool-reviewer.log` (override with `--log-file`; query with `grep`/`jq`). Manage it with:
+
+```bash
+cc-tool-reviewer daemon status
+cc-tool-reviewer daemon stop
+```
+
+The running daemon is tracked in `/tmp/cc-tool-reviewer.daemon.json` (pid, log path, start time), locked with `flock` while the daemon is alive — so a crashed daemon's leftover file never blocks the next start, and `stop` never signals a recycled pid.
+
+Or run it in the foreground:
+
 ```bash
 cc-tool-reviewer
 ```
 
-Or with a custom socket path:
+Flags go before the subcommand, e.g. with a custom socket path:
 
 ```bash
-cc-tool-reviewer --socket /tmp/my-reviewer.sock
+cc-tool-reviewer --socket /tmp/my-reviewer.sock daemon start
 ```
 
 Start the daemon outside of Claude Code (e.g., from a shell alias or launch script), since the hook would interfere with starting it from within a Claude Code session.
