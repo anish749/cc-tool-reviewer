@@ -23,8 +23,16 @@ func TestLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Keep daemon state out of the real runtime dir — for both the test
+	// process (readState below) and the spawned binary (run below).
+	t.Setenv("XDG_RUNTIME_DIR", dir)
 
-	bin := filepath.Join(dir, "cc-tool-reviewer")
+	// Not named cc-tool-reviewer: XDG_RUNTIME_DIR points at this same dir,
+	// so RuntimeDir() would collide with a binary of that name.
+	bin := filepath.Join(dir, "reviewer-under-test")
 	if out, err := exec.Command("go", "build", "-o", bin, "github.com/anish/cc-tool-reviewer").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
@@ -35,14 +43,19 @@ func TestLifecycle(t *testing.T) {
 		cmd := exec.Command(bin, append([]string{"--socket", sock, "--log-file", logf}, args...)...)
 		// The spawned daemon must pass startup validation without real
 		// credentials being present (or absent) on the host running tests.
-		cmd.Env = append(os.Environ(), "ANTHROPIC_API_KEY=test-dummy", "USE_CLAUDE_CLI_CLIENT=")
+		cmd.Env = append(os.Environ(),
+			"ANTHROPIC_API_KEY=test-dummy",
+			"USE_CLAUDE_CLI_CLIENT=",
+			"XDG_RUNTIME_DIR="+dir,
+		)
 		out, err := cmd.CombinedOutput()
 		return string(out), err
 	}
 
 	out, err := run("daemon", "start")
 	if err != nil {
-		t.Fatalf("daemon start: %v\n%s", err, out)
+		logData, _ := os.ReadFile(logf)
+		t.Fatalf("daemon start: %v\n%s\n--- daemon log ---\n%s", err, out, logData)
 	}
 	if !strings.Contains(out, "daemon started") {
 		t.Errorf("start output = %q", out)
@@ -91,7 +104,7 @@ func TestLifecycle(t *testing.T) {
 	}
 
 	// A crashed daemon's leftover state file must not block the next start.
-	if err := os.WriteFile(StatePath(sock), []byte(`{"pid":4194000}`), 0o644); err != nil {
+	if err := os.WriteFile(StatePath(sock), []byte(`{"pid":4194000}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	out, err = run("daemon", "start")

@@ -8,14 +8,17 @@ import (
 )
 
 func TestStatePath(t *testing.T) {
-	cases := map[string]string{
-		"/tmp/cc-tool-reviewer.sock": "/tmp/cc-tool-reviewer.daemon.json",
-		"/tmp/custom":                "/tmp/custom.daemon.json",
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/501")
+
+	got := StatePath("/tmp/cc-tool-reviewer.sock")
+	want := "/run/user/501/cc-tool-reviewer/tmp-cc-tool-reviewer.json"
+	if got != want {
+		t.Errorf("StatePath = %q, want %q", got, want)
 	}
-	for socket, want := range cases {
-		if got := StatePath(socket); got != want {
-			t.Errorf("StatePath(%q) = %q, want %q", socket, got, want)
-		}
+
+	// Same basename, different dirs: must not collide.
+	if StatePath("/tmp/a.sock") == StatePath("/var/a.sock") {
+		t.Error("state paths collide for distinct sockets")
 	}
 }
 
@@ -31,6 +34,7 @@ func TestIsChild(t *testing.T) {
 }
 
 func TestWriteReadState(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	socket := filepath.Join(t.TempDir(), "t.sock")
 
 	if _, _, err := readState(socket); !os.IsNotExist(err) {
@@ -66,9 +70,13 @@ func TestWriteReadState(t *testing.T) {
 }
 
 func TestReadStateStale(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	socket := filepath.Join(t.TempDir(), "t.sock")
 	// A state file with no lock holder — what a crashed daemon leaves.
-	if err := os.WriteFile(StatePath(socket), []byte(`{"pid":4194000,"log_path":"/tmp/x.log"}`), 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Dir(StatePath(socket)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(StatePath(socket), []byte(`{"pid":4194000,"log_path":"/tmp/x.log"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	st, held, err := readState(socket)

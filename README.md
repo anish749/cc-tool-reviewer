@@ -87,14 +87,20 @@ Run it in the background:
 cc-tool-reviewer daemon start
 ```
 
-`start` detaches from the terminal and returns immediately. It's idempotent — if a daemon is already serving the socket it says so and exits 0, so it's safe in a login script. The background process appends JSON-line logs to `/tmp/cc-tool-reviewer.log` (override with `--log-file`; query with `grep`/`jq`). Manage it with:
+`start` detaches from the terminal and returns immediately. It's idempotent — if a daemon is already serving the socket it says so and exits 0, so it's safe in a login script. The background process appends JSON-line logs (query with `grep`/`jq`) to the platform log directory, overridable with `--log-file`:
+
+- `$XDG_STATE_HOME/cc-tool-reviewer/daemon.log` when `XDG_STATE_HOME` is set
+- `~/Library/Logs/cc-tool-reviewer/daemon.log` on macOS
+- `~/.local/state/cc-tool-reviewer/daemon.log` elsewhere
+
+Manage it with:
 
 ```bash
 cc-tool-reviewer daemon status
 cc-tool-reviewer daemon stop
 ```
 
-The running daemon is tracked in `/tmp/cc-tool-reviewer.daemon.json` (pid, log path, start time), locked with `flock` while the daemon is alive — so a crashed daemon's leftover file never blocks the next start, and `stop` never signals a recycled pid.
+The running daemon is tracked by a state file (pid, log path, start time) in `$XDG_RUNTIME_DIR/cc-tool-reviewer/` (falling back to the per-user temp dir), locked with `flock` while the daemon is alive — so a crashed daemon's leftover file never blocks the next start, and `stop` never signals a recycled pid.
 
 Or run it in the foreground:
 

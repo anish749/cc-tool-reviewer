@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/anish/cc-tool-reviewer/internal/paths"
 )
 
 // childEnv marks the re-executed background child so it runs the server
@@ -32,11 +35,18 @@ type State struct {
 	path string
 }
 
-// StatePath derives the state file from the socket path so daemons on
-// different sockets are tracked independently:
-// /tmp/x.sock -> /tmp/x.daemon.json.
+// StatePath maps a socket path to its state file in the per-user runtime
+// dir, so daemons on different sockets are tracked independently. The full
+// (absolute) socket path is flattened into the name rather than hashed, to
+// stay debuggable: /tmp/x.sock -> <runtime>/tmp-x.json.
 func StatePath(socketPath string) string {
-	return strings.TrimSuffix(socketPath, ".sock") + ".daemon.json"
+	abs, err := filepath.Abs(socketPath)
+	if err != nil {
+		abs = socketPath
+	}
+	name := strings.TrimPrefix(strings.TrimSuffix(abs, ".sock"), string(filepath.Separator))
+	name = strings.ReplaceAll(name, string(filepath.Separator), "-")
+	return filepath.Join(paths.RuntimeDir(), name+".json")
 }
 
 // WriteState claims the state file for this process: takes the exclusive
@@ -44,7 +54,10 @@ func StatePath(socketPath string) string {
 // record. The lock is held until Remove.
 func WriteState(socketPath, logPath string) (*State, error) {
 	path := StatePath(socketPath)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	if err := paths.EnsureDir(filepath.Dir(path)); err != nil {
+		return nil, fmt.Errorf("runtime dir: %w", err)
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open state file: %w", err)
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/anish/cc-tool-reviewer/internal/daemon"
 	"github.com/anish/cc-tool-reviewer/internal/llm"
 	"github.com/anish/cc-tool-reviewer/internal/logging"
+	"github.com/anish/cc-tool-reviewer/internal/paths"
 	"github.com/anish/cc-tool-reviewer/internal/reviewlog"
 	"github.com/anish/cc-tool-reviewer/internal/selfupdate"
 	"github.com/anish/cc-tool-reviewer/promptui"
@@ -31,7 +32,7 @@ func main() {
 	socketPath := flag.String("socket", DefaultSocketPath, "Unix socket path")
 	legacyUI := flag.Bool("legacy-ui", false, "use the legacy AppKit dialog instead of SwiftUI")
 	reviewLogPath := flag.String("llm-review-log", "", "path to a JSONL file for logging tool inputs sent to LLM review")
-	daemonLogPath := flag.String("log-file", daemon.DefaultLogPath, "daemon mode: file the background process's log output is appended to")
+	daemonLogPath := flag.String("log-file", paths.DefaultLogFile(), "daemon mode: file the background process's log output is appended to")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 

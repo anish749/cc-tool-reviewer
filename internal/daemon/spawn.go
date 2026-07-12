@@ -5,8 +5,11 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/anish/cc-tool-reviewer/internal/paths"
 )
 
 // spawn re-executes the current binary in a new session, detached from the
@@ -16,7 +19,10 @@ func spawn(logPath string) (pid int, err error) {
 	if err != nil {
 		return 0, fmt.Errorf("resolve executable: %w", err)
 	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err := paths.EnsureDir(filepath.Dir(logPath)); err != nil {
+		return 0, fmt.Errorf("log dir: %w", err)
+	}
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return 0, fmt.Errorf("open log file: %w", err)
 	}

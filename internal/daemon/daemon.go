@@ -12,10 +12,6 @@ import (
 	"time"
 )
 
-// DefaultLogPath is where the background process's output goes unless
-// overridden with --log-file.
-const DefaultLogPath = "/tmp/cc-tool-reviewer.log"
-
 // Run executes a daemon verb and returns the process exit code.
 func Run(verb, socketPath, logPath string) int {
 	switch verb {
