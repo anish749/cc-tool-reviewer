@@ -78,11 +78,11 @@ func TestReview_TransportErrorPropagates(t *testing.T) {
 
 func TestNewReviewLLM_BuildsClient(t *testing.T) {
 	// Both branches must construct a usable client without panicking.
-	t.Setenv(EnvUseCLIClient, "")
+	t.Setenv(llm.EnvUseCLIClient, "")
 	if NewReviewLLM() == nil {
 		t.Error("nil client for API branch")
 	}
-	t.Setenv(EnvUseCLIClient, "1")
+	t.Setenv(llm.EnvUseCLIClient, "1")
 	if NewReviewLLM() == nil {
 		t.Error("nil client for CLI branch")
 	}

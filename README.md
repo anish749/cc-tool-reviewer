@@ -67,6 +67,9 @@ By default the daemon calls the Anthropic API directly. Set one of:
 
 - **`ANTHROPIC_API_KEY`** — an API key from the [Anthropic Console](https://console.anthropic.com/)
 - **`ANTHROPIC_AUTH_TOKEN`** — a Bearer token, if using an LLM gateway or proxy
+- **`ANTHROPIC_BASE_URL`** — a gateway/proxy URL (sufficient alone if the gateway needs no token)
+
+Startup is validated: if none of these is set (and CLI mode below is off), the daemon refuses to start instead of failing silently on every review.
 
 #### Use the Claude CLI instead of an API key
 
