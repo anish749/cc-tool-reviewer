@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/anish/cc-tool-reviewer/configwatcher"
+	"github.com/anish/cc-tool-reviewer/internal/logging"
 	"github.com/anish/cc-tool-reviewer/internal/reviewlog"
 	"github.com/anish/cc-tool-reviewer/internal/selfupdate"
 	"github.com/anish/cc-tool-reviewer/promptui"
-	"github.com/lmittmann/tint"
 )
 
 // version and release are overridden at build time via ldflags.
@@ -46,9 +46,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{
-		TimeFormat: time.Kitchen,
-	})))
+	logging.Setup()
 
 	// Background update check (never blocks)
 	selfupdate.AutoCheck(version, release == "true")
