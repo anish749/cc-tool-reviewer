@@ -78,13 +78,13 @@ func TestReview_TransportErrorPropagates(t *testing.T) {
 
 func TestNewReviewLLM_BuildsClient(t *testing.T) {
 	// Both branches must construct a usable client without panicking.
-	t.Setenv(llm.EnvUseCLIClient, "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
 	if NewReviewLLM() == nil {
-		t.Error("nil client for API branch")
+		t.Error("nil client for CLI (default) branch")
 	}
-	t.Setenv(llm.EnvUseCLIClient, "1")
+	t.Setenv("ANTHROPIC_API_KEY", "x")
 	if NewReviewLLM() == nil {
-		t.Error("nil client for CLI branch")
+		t.Error("nil client for Anthropic branch")
 	}
 }
 

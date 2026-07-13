@@ -9,8 +9,8 @@ import (
 )
 
 // TestLive_CLIReviewer drives the reviewer end-to-end over the CLI-backed LLM
-// client against the real `claude` binary — the path taken when
-// USE_CLAUDE_CLI_CLIENT is set. Skipped in short mode:
+// client against the real `claude` binary — the default backend. Skipped in
+// short mode:
 //
 //	go test . -run TestLive_CLIReviewer -v
 func TestLive_CLIReviewer(t *testing.T) {
