@@ -27,7 +27,7 @@ struct DialogView: View {
             if !input.cwd.isEmpty {
                 Text(input.cwd)
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.4))
+                    .foregroundStyle(Color.primary.opacity(0.4))
             }
 
             Text(input.tool)
@@ -37,13 +37,13 @@ struct DialogView: View {
             if !input.command.isEmpty {
                 Text(input.command)
                     .font(.system(size: 10.5, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.85))
+                    .foregroundStyle(Color.primary.opacity(0.85))
                     .lineLimit(2)
             }
 
             Text(state.isExpanded ? "▾ click to collapse" : "▸ click for details")
                 .font(.system(size: 9))
-                .foregroundStyle(.white.opacity(0.25))
+                .foregroundStyle(Color.primary.opacity(0.25))
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
@@ -67,7 +67,7 @@ struct DialogView: View {
                 sectionHeader("AI REASON")
                 Text(input.aiReason)
                     .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(Color.primary.opacity(0.5))
                     .lineLimit(2)
             }
 
@@ -75,20 +75,20 @@ struct DialogView: View {
                 sectionHeader("CONTEXT")
                 Text(input.userMessage)
                     .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(Color.primary.opacity(0.5))
                     .lineLimit(6)
             }
 
             sectionHeader("FEEDBACK (sent to Claude on deny)")
             TextEditor(text: $state.feedback)
                 .font(.system(size: 10.5))
-                .foregroundStyle(.white)
+                .foregroundStyle(Color.primary)
                 .scrollContentBackground(.hidden)
-                .background(.white.opacity(0.05))
+                .background(Color.primary.opacity(0.05))
                 .clipShape(RoundedRectangle(cornerRadius: 4))
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
-                        .stroke(.white.opacity(0.1), lineWidth: 0.5)
+                        .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
                 )
                 .frame(height: 50)
         }
@@ -127,7 +127,7 @@ struct DialogView: View {
     func sectionHeader(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 9, weight: .bold))
-            .foregroundStyle(.white.opacity(0.35))
+            .foregroundStyle(Color.primary.opacity(0.35))
     }
 
     func actionButton(_ title: String, color: Color, action: @escaping () -> Void) -> some View {
