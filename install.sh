@@ -45,10 +45,6 @@ if [ "${OS}" = "darwin" ]; then
   cd "${DIALOG_DIR}/approval-dialog" && swift build -c release --quiet
   cp "${DIALOG_DIR}/approval-dialog/.build/release/approval-dialog" "${INSTALL_DIR}/approval-dialog"
   chmod +x "${INSTALL_DIR}/approval-dialog"
-
-  # Also compile legacy dialog
-  swiftc "${DIALOG_DIR}/promptui/swift/approval.swift" -o "${INSTALL_DIR}/approval-dialog-legacy"
-  chmod +x "${INSTALL_DIR}/approval-dialog-legacy"
 fi
 
 echo "Done. ${BINARY} ${VERSION} installed to ${INSTALL_DIR}"
