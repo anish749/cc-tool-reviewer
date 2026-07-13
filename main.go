@@ -33,7 +33,6 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
-	// Unconditional and first so logs and crash reports always show the version that produced them.
 	fmt.Println("cc-tool-reviewer", version)
 
 	if *showVersion {
