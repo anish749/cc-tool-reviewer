@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 
 	"github.com/anish/cc-tool-reviewer/internal/llm"
@@ -32,15 +31,17 @@ func NewReviewer(client llm.Client, allowRules []string) *Reviewer {
 	return &Reviewer{llm: client, systemPrompt: buildSystemPrompt(allowRules)}
 }
 
-// NewReviewLLM selects the LLM client from the environment: the CLI-backed
-// client when USE_CLAUDE_CLI_CLIENT is set, otherwise the Anthropic SDK one.
+// NewReviewLLM selects the LLM client from the environment: the local
+// `claude` CLI by default, or the Anthropic SDK when llm.UseAnthropicSDK
+// reports true.
 func NewReviewLLM() llm.Client {
 	opts := []llm.Option{llm.WithModel(reviewModel)}
-	if os.Getenv(llm.EnvUseCLIClient) != "" {
-		slog.Info("reviewer using claude CLI client")
-		return llm.NewCLIClient(opts...)
+	if llm.UseAnthropicSDK() {
+		slog.Info("reviewer using Anthropic SDK client")
+		return llm.NewAnthropicClient(opts...)
 	}
-	return llm.NewAnthropicClient(opts...)
+	slog.Info("reviewer using claude CLI client (default)")
+	return llm.NewCLIClient(opts...)
 }
 
 // Review asks the model to classify a tool call. It returns an "allow"/"ask"

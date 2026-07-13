@@ -3,25 +3,28 @@ package llm
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
 func clearBackendEnv(t *testing.T) {
 	t.Helper()
-	for _, name := range append([]string{EnvUseCLIClient}, anthropicEnvVars...) {
+	for _, name := range anthropicEnvVars {
 		t.Setenv(name, "")
 	}
 }
 
-func TestValidate_NothingSet(t *testing.T) {
-	clearBackendEnv(t)
-	err := Validate()
-	if err == nil {
-		t.Fatal("expected error with no backend configured")
-	}
-	if !strings.Contains(err.Error(), "ANTHROPIC_API_KEY") {
-		t.Errorf("error should name the fix: %v", err)
+func TestUseAnthropicSDK(t *testing.T) {
+	for _, name := range anthropicEnvVars {
+		t.Run(name, func(t *testing.T) {
+			clearBackendEnv(t)
+			if UseAnthropicSDK() {
+				t.Fatal("expected false with no env set")
+			}
+			t.Setenv(name, "x")
+			if !UseAnthropicSDK() {
+				t.Errorf("expected true with %s set", name)
+			}
+		})
 	}
 }
 
@@ -37,9 +40,8 @@ func TestValidate_AnthropicVars(t *testing.T) {
 	}
 }
 
-func TestValidate_CLIMode(t *testing.T) {
+func TestValidate_DefaultsToCLI(t *testing.T) {
 	clearBackendEnv(t)
-	t.Setenv(EnvUseCLIClient, "1")
 
 	dir := t.TempDir()
 	t.Setenv("PATH", dir)

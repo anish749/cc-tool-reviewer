@@ -2,10 +2,10 @@
 //
 // A Client turns a single (system prompt, user prompt) pair into either plain
 // text or a JSON-decoded value. There is one Client interface over two ways of
-// calling Claude — the Anthropic SDK and the local `claude` CLI. Everything
-// common to both (the model, trimming, and JSON decoding) lives here in the
-// shared layer and is configured once via Option; each backend only supplies
-// the raw completion.
+// calling Claude — the local `claude` CLI, used by default, and the Anthropic
+// SDK, used when UseAnthropicSDK reports true. Everything common to both (the
+// model, trimming, and JSON decoding) lives here in the shared layer and is
+// configured once via Option; each backend only supplies the raw completion.
 package llm
 
 import (

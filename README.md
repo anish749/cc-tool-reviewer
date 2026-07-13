@@ -63,20 +63,20 @@ Do **not** use `nc -w` (timeout). The native dialog needs time for user interact
 
 ### 3. Set up credentials
 
-By default the daemon calls the Anthropic API directly. Set one of:
+By default the daemon routes review through the local `claude` command-line tool, in one-shot mode using your existing Claude Code login — no API key needed. It requires the `claude` binary on `PATH`. Reviews are a little slower this way (CLI cold-start), but they draw on your Claude subscription rather than metered API credits.
+
+Startup is validated: if the `claude` binary isn't on `PATH` (and none of the API credentials below are set), the daemon refuses to start instead of failing silently on every review.
+
+#### Use the Anthropic API instead of the CLI
+
+Set one of these to call the Anthropic API directly instead of the local CLI:
 
 - **`ANTHROPIC_API_KEY`** — an API key from the [Anthropic Console](https://console.anthropic.com/)
 - **`ANTHROPIC_AUTH_TOKEN`** — a Bearer token, if using an LLM gateway or proxy
 - **`ANTHROPIC_BASE_URL`** — a gateway/proxy URL (sufficient alone if the gateway needs no token)
 
-Startup is validated: if none of these is set (and CLI mode below is off), the daemon refuses to start instead of failing silently on every review.
-
-#### Use the Claude CLI instead of an API key
-
-Set **`USE_CLAUDE_CLI_CLIENT`** (to any non-empty value) to route review through the local `claude` command-line tool instead of the Anthropic SDK. The CLI runs in one-shot mode using your existing Claude Code login, so no `ANTHROPIC_API_KEY` is needed. It requires the `claude` binary on `PATH`. Reviews are a little slower this way (CLI cold-start), but they draw on your Claude subscription rather than metered API credits.
-
 ```bash
-USE_CLAUDE_CLI_CLIENT=1 cc-tool-reviewer
+ANTHROPIC_API_KEY=sk-ant-... cc-tool-reviewer
 ```
 
 ### 4. Start the daemon
