@@ -33,8 +33,9 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
+	fmt.Println("cc-tool-reviewer", version)
+
 	if *showVersion {
-		fmt.Println("cc-tool-reviewer", version)
 		os.Exit(0)
 	}
 
