@@ -138,6 +138,24 @@ func MatchesAll(toolName string, toolInput json.RawMessage, rules []Rule) bool {
 	return true
 }
 
+// UnmatchedCommands returns the sub-commands of a tool call that match
+// no rule — the reason MatchesAll fails and the call escalates to AI
+// review. Duplicates are collapsed so the list reads as "the rules that
+// are missing". Empty means every sub-command matched, or nothing
+// parsed (e.g. Monitor's ws variant has no command to inspect).
+func UnmatchedCommands(toolName string, toolInput json.RawMessage, rules []Rule) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, cmd := range toolCommands(toolName, toolInput) {
+		if matchesRule(toolName, cmd, rules) || seen[cmd.Text] {
+			continue
+		}
+		seen[cmd.Text] = true
+		out = append(out, cmd.Text)
+	}
+	return out
+}
+
 // MatchesAny returns true if at least one command in the tool call matches
 // a rule. For Bash, the command is parsed into an AST and any sub-command
 // (including inside pipes, &&, ||, and subshells) matching suffices.

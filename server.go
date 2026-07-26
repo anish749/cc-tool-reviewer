@@ -130,20 +130,25 @@ func (s *Server) handle(conn net.Conn) {
 	// Read conversation context from transcript
 	ctx := promptui.ReadContext(input.TranscriptPath, 6)
 
+	// The sub-commands with no matching allow rule — why this call
+	// escalated past the static check.
+	unmatched := UnmatchedCommands(input.ToolName, input.ToolInput, allow)
+
 	// "Ask zone" — consult the AI reviewer
 	decision, err := reviewer.Review(input.ToolName, input.ToolInput)
 	if err != nil {
 		slog.Error("reviewer failed, deferring to terminal",
 			"tool", input.ToolName,
 			"input", ToolInputString(input.ToolName, input.ToolInput),
+			"unmatched", unmatched,
 			"err", err,
 		)
 		s.writeResponse(conn, "ask", "reviewer error: "+err.Error(), "")
 		return
 	}
 
-	slog.Info("reviewed", "tool", input.ToolName, "decision", decision.Decision, "method", "llm-reviewed", "reason", decision.Reason, "input", string(input.ToolInput))
-	s.reviewLog.Log(input.ToolName, input.ToolInput, decision.Decision, decision.Reason)
+	slog.Info("reviewed", "tool", input.ToolName, "decision", decision.Decision, "method", "llm-reviewed", "reason", decision.Reason, "unmatched", unmatched, "input", string(input.ToolInput))
+	s.reviewLog.Log(input.ToolName, input.ToolInput, decision.Decision, decision.Reason, unmatched)
 
 	// If AI says "allow", pass it through
 	if decision.Decision == "allow" {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -1147,5 +1148,51 @@ func TestMatchesAll_BashNotGovernedByMonitorRules(t *testing.T) {
 
 	if MatchesAll("Bash", bashInput("rm -rf /tmp/x"), rules) {
 		t.Error("Monitor rules must not govern Bash commands")
+	}
+}
+
+// --- UnmatchedCommands (logged with every LLM-reviewed decision) ---
+
+func TestUnmatchedCommands(t *testing.T) {
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "cd:*"},
+		{Tool: "Bash", Pattern: "echo:*"},
+	}
+
+	tests := []struct {
+		name string
+		cmd  string
+		want []string
+	}{
+		{
+			"unmatched sub-command is reported",
+			"cd /tmp && which node && echo ok",
+			[]string{"which node"},
+		},
+		{
+			"repeated unmatched sub-command is deduped",
+			"npx tsc --noEmit && echo a; npx tsc --noEmit && echo b",
+			[]string{"npx tsc --noEmit"},
+		},
+		{
+			"fully matched command reports nothing",
+			"cd /tmp && echo ok",
+			nil,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := UnmatchedCommands("Bash", bashInput(tc.cmd), rules)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("UnmatchedCommands(%q) = %q, want %q", tc.cmd, got, tc.want)
+			}
+		})
+	}
+
+	// An empty list must mean "not a rule gap": Monitor's ws variant
+	// parses no commands, so nothing is reported as unmatched.
+	wsMonitor := json.RawMessage(`{"description":"deploy events","ws":{"url":"wss://example.com/stream"}}`)
+	if got := UnmatchedCommands("Monitor", wsMonitor, rules); len(got) != 0 {
+		t.Errorf("ws Monitor parses no commands: unmatched = %q, want empty", got)
 	}
 }

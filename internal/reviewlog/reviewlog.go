@@ -22,6 +22,9 @@ type Entry struct {
 	ToolInput json.RawMessage `json:"input"`
 	Decision  string          `json:"decision"`
 	Reason    string          `json:"reason"`
+	// Unmatched lists the sub-commands that matched no allow rule —
+	// why the call escalated past the static check to AI review.
+	Unmatched []string `json:"unmatched,omitempty"`
 }
 
 // Logger writes JSONL review log entries to a rotating file.
@@ -47,7 +50,7 @@ func New(path string) *Logger {
 }
 
 // Log appends a review entry. Safe for concurrent use. No-op on nil receiver.
-func (l *Logger) Log(toolName string, toolInput json.RawMessage, decision, reason string) {
+func (l *Logger) Log(toolName string, toolInput json.RawMessage, decision, reason string, unmatched []string) {
 	if l == nil {
 		return
 	}
@@ -57,6 +60,7 @@ func (l *Logger) Log(toolName string, toolInput json.RawMessage, decision, reaso
 		ToolInput: toolInput,
 		Decision:  decision,
 		Reason:    reason,
+		Unmatched: unmatched,
 	}
 	line, err := json.Marshal(entry)
 	if err != nil {
