@@ -70,12 +70,29 @@ func bashInput(command string) json.RawMessage {
 	return b
 }
 
+func validatedMatchesAll(t *testing.T, toolName string, toolInput json.RawMessage, rules []Rule) MatchAllResult {
+	t.Helper()
+	result := MatchesAll(toolName, toolInput, rules)
+	if result.Matched && len(result.UnmatchedCommands) != 0 {
+		t.Fatalf("Matched = true with unmatched commands %#v", result.UnmatchedCommands)
+	}
+	if !result.Matched && len(toolCommands(toolName, toolInput)) > 0 && len(result.UnmatchedCommands) == 0 {
+		t.Fatal("Matched = false without an unmatched command")
+	}
+	for i, command := range result.UnmatchedCommands {
+		if command == "" {
+			t.Errorf("UnmatchedCommands[%d] is empty", i)
+		}
+	}
+	return result
+}
+
 // --- Simple (non-compound) commands ---
 
 func TestMatchesAll_CurlSimple(t *testing.T) {
 	rules := []Rule{{Tool: "Bash", Pattern: "curl:*"}}
 
-	got := MatchesAll("Bash", bashInput("curl https://example.com"), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput("curl https://example.com"), rules).Matched
 	if !got {
 		t.Error("simple curl should match Bash(curl:*)")
 	}
@@ -88,7 +105,7 @@ func TestMatchesAll_CurlWithPipe(t *testing.T) {
 	}
 
 	cmd := "curl -s https://example.com | jq ."
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("curl|jq with both allowed should match")
 	}
@@ -99,7 +116,7 @@ func TestMatchesAll_CurlWithPipePartial(t *testing.T) {
 
 	// jq is not in allow list → should NOT match
 	cmd := "curl -s https://example.com | jq ."
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if got {
 		t.Error("curl|jq with only curl allowed should NOT match")
 	}
@@ -133,7 +150,7 @@ func TestMatchesAll_CurlMultilineJSON(t *testing.T) {
         }
       }' | python3 -m json.tool`
 
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("multiline curl piped to python3 with both allowed should match")
 	}
@@ -147,7 +164,7 @@ func TestMatchesAll_CurlSingleLineJSON(t *testing.T) {
 
 	cmd := `curl -s 'http://example.com' -d '{"size":0}' | python3 -m json.tool`
 
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("single-line curl piped to python3 should match")
 	}
@@ -162,7 +179,7 @@ func TestMatchesAll_AllMatch(t *testing.T) {
 	}
 
 	cmd := "git add . && git commit -m 'fix' && echo done"
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("all sub-commands match → should match")
 	}
@@ -172,9 +189,22 @@ func TestMatchesAll_PartialMatch(t *testing.T) {
 	rules := []Rule{{Tool: "Bash", Pattern: "curl:*"}}
 
 	cmd := "curl https://example.com && rm -rf /tmp/data"
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if got {
 		t.Error("partial match (rm unmatched) → should NOT match")
+	}
+}
+
+func TestUnmatchedCommands(t *testing.T) {
+	rules := []Rule{
+		{Tool: "Bash", Pattern: "git status *"},
+		{Tool: "Bash", Pattern: "rg:*"},
+	}
+	input := bashInput("git status --short && mystery --flag | rg needle")
+
+	got := validatedMatchesAll(t, "Bash", input, rules).UnmatchedCommands
+	if len(got) != 1 || got[0] != "mystery --flag" {
+		t.Fatalf("UnmatchedCommands = %#v, want [\"mystery --flag\"]", got)
 	}
 }
 
@@ -182,7 +212,7 @@ func TestMatchesAll_NoneMatch(t *testing.T) {
 	rules := []Rule{{Tool: "Bash", Pattern: "curl:*"}}
 
 	cmd := "wget https://example.com && rm -rf /tmp/data"
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if got {
 		t.Error("no sub-commands match → should NOT match")
 	}
@@ -192,7 +222,7 @@ func TestMatchesAll_Semicolon(t *testing.T) {
 	rules := []Rule{{Tool: "Bash", Pattern: "git:*"}}
 
 	cmd := "git add .; git commit -m 'msg'"
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("semicolon-separated, all matching → should match")
 	}
@@ -205,7 +235,7 @@ func TestMatchesAll_Newline(t *testing.T) {
 	}
 
 	cmd := "git status\necho 'all clean'"
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("newline-separated, all matching → should match")
 	}
@@ -255,7 +285,7 @@ func TestMatchesAll_SubshellAllowed(t *testing.T) {
 	}
 
 	cmd := "echo $(whoami)"
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("subshell command also allowed → should match")
 	}
@@ -265,7 +295,7 @@ func TestMatchesAll_SubshellNotAllowed(t *testing.T) {
 	rules := []Rule{{Tool: "Bash", Pattern: "echo:*"}}
 
 	cmd := "echo $(whoami)"
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if got {
 		t.Error("subshell command not allowed → should NOT match")
 	}
@@ -275,7 +305,7 @@ func TestMatchesAll_SubshellDangerous(t *testing.T) {
 	rules := []Rule{{Tool: "Bash", Pattern: "echo:*"}}
 
 	cmd := "echo $(rm -rf /)"
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if got {
 		t.Error("dangerous subshell → should NOT match")
 	}
@@ -288,7 +318,7 @@ func TestMatchesAll_NestedSubshell(t *testing.T) {
 	}
 
 	cmd := "echo $(echo $(date))"
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("all nested subshell commands allowed → should match")
 	}
@@ -298,7 +328,7 @@ func TestMatchesAll_NestedSubshellPartial(t *testing.T) {
 	rules := []Rule{{Tool: "Bash", Pattern: "echo:*"}}
 
 	cmd := "echo $(echo $(date))"
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if got {
 		t.Error("inner nested subshell not allowed → should NOT match")
 	}
@@ -311,7 +341,7 @@ func TestMatchesAll_BacktickSubshell(t *testing.T) {
 	}
 
 	cmd := "echo `date`"
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("backtick subshell allowed → should match")
 	}
@@ -321,7 +351,7 @@ func TestMatchesAll_BacktickSubshellNotAllowed(t *testing.T) {
 	rules := []Rule{{Tool: "Bash", Pattern: "echo:*"}}
 
 	cmd := "echo `whoami`"
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if got {
 		t.Error("backtick subshell not allowed → should NOT match")
 	}
@@ -334,7 +364,7 @@ func TestMatchesAll_SubshellInDoubleQuotes(t *testing.T) {
 	}
 
 	cmd := `echo "today is $(date)"`
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("subshell in double quotes, all allowed → should match")
 	}
@@ -345,7 +375,7 @@ func TestMatchesAll_SubshellInSingleQuotes(t *testing.T) {
 
 	// $() inside single quotes is literal — not a subshell
 	cmd := "echo '$(date)'"
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("subshell in single quotes is literal, not compound → should match")
 	}
@@ -359,7 +389,7 @@ func TestMatchesAll_CompoundWithSubshell(t *testing.T) {
 	}
 
 	cmd := "git add . && echo $(date)"
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("compound + subshell, all allowed → should match")
 	}
@@ -373,7 +403,7 @@ func TestMatchesAll_CompoundWithSubshellPartial(t *testing.T) {
 
 	// git and echo allowed, but date (inside subshell) is not
 	cmd := "git add . && echo $(date)"
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if got {
 		t.Error("subshell content not allowed → should NOT match")
 	}
@@ -397,7 +427,7 @@ func TestMatchesAll_SubshellWithCompoundInside(t *testing.T) {
 	}
 
 	cmd := "echo $(git status && date)"
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("compound inside subshell, all allowed → should match")
 	}
@@ -415,7 +445,7 @@ func TestMatchesAll_CurlMultilineWithHead(t *testing.T) {
         "fields": ["id", "name", "updated_at"]
       }' | head -80`
 
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("multiline curl with JSON body piped to head, both allowed, should match")
 	}
@@ -432,7 +462,7 @@ func TestMatchesAll_CurlMultilineWithHeadCurlOnly(t *testing.T) {
         "fields": ["id", "name", "updated_at"]
       }' | head -80`
 
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if got {
 		t.Error("head not in allow list → should NOT match")
 	}
@@ -456,7 +486,7 @@ func TestMatchesAll_ForLoopAllAllowed(t *testing.T) {
         fi
       done`
 
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("for loop with all inner commands allowed → should match")
 	}
@@ -474,7 +504,7 @@ func TestMatchesAll_ForLoopPartiallyAllowed(t *testing.T) {
         echo "$region: $count"
       done`
 
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if got {
 		t.Error("python3 not in allow list → should NOT match")
 	}
@@ -487,7 +517,7 @@ func TestMatchesAll_IfElseAllAllowed(t *testing.T) {
 	}
 
 	cmd := `if [ -f go.mod ]; then echo found; else echo missing; fi`
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("if-else with all commands allowed → should match")
 	}
@@ -499,7 +529,7 @@ func TestMatchesAll_IfElsePartiallyAllowed(t *testing.T) {
 	}
 
 	cmd := `if [ -f go.mod ]; then echo found; else echo missing; fi`
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if got {
 		t.Error("[ (test condition) not in allow list → should NOT match")
 	}
@@ -513,7 +543,7 @@ func TestMatchesAll_WhileAllAllowed(t *testing.T) {
 	}
 
 	cmd := "while true; do echo waiting; sleep 1; done"
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("while loop with all commands allowed → should match")
 	}
@@ -526,7 +556,7 @@ func TestMatchesAll_WhilePartiallyAllowed(t *testing.T) {
 	}
 
 	cmd := "while true; do echo waiting; sleep 1; done"
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if got {
 		t.Error("sleep not in allow list → should NOT match")
 	}
@@ -559,7 +589,7 @@ func TestMatchesAll_CommentThenCurl(t *testing.T) {
 
 	cmd := "# Fetch recent orders from the API\ncurl -s --max-time 15 'http://api.example.com/v1/orders?format=json' -H 'Content-Type: application/json' -d '{\n        \"limit\": 5,\n        \"filter\": {\"status\": \"pending\"},\n        \"fields\": [\"id\", \"amount\", \"created_at\"]\n      }'"
 
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("comment followed by curl, curl allowed → should match")
 	}
@@ -574,7 +604,7 @@ func TestMatchesAll_CommentThenForLoop(t *testing.T) {
 
 	cmd := "# Check each region in parallel\nfor region in us-east eu-west; do\n  result=$(curl -s \"http://api.example.com/v1/regions/${region}/health\" 2>/dev/null)\n  count=$(echo \"$result\" | python3 -c \"import json,sys; print('ok')\" 2>/dev/null)\n  echo \"$region: $count\"\ndone"
 
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("comment + for-loop with all inner commands allowed → should match")
 	}
@@ -591,7 +621,7 @@ func TestMatchesAll_CurlMultilineJSONBody(t *testing.T) {
         "fields": ["id", "email", "created_at"]
       }'`
 
-	got := MatchesAll("Bash", bashInput(cmd), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(cmd), rules).Matched
 	if !got {
 		t.Error("standalone multiline curl with JSON body, curl allowed → should match")
 	}
@@ -600,7 +630,7 @@ func TestMatchesAll_CurlMultilineJSONBody(t *testing.T) {
 func TestMatchesAll_EmptyCommand(t *testing.T) {
 	rules := []Rule{{Tool: "Bash", Pattern: "git:*"}}
 
-	got := MatchesAll("Bash", bashInput(""), rules)
+	got := validatedMatchesAll(t, "Bash", bashInput(""), rules).Matched
 	if got {
 		t.Error("empty command should NOT match any allow list")
 	}
@@ -721,7 +751,7 @@ func TestMatchesAll_Synonyms(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := MatchesAll("Bash", bashInput(tc.cmd), tc.rules)
+			got := validatedMatchesAll(t, "Bash", bashInput(tc.cmd), tc.rules).Matched
 			if got != tc.want {
 				t.Errorf("MatchesAll = %v, want %v", got, tc.want)
 			}
@@ -810,7 +840,7 @@ func TestMatchesAll_NormalizedGit(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := MatchesAll("Bash", bashInput(tc.cmd), tc.rules)
+			got := validatedMatchesAll(t, "Bash", bashInput(tc.cmd), tc.rules).Matched
 			if got != tc.want {
 				t.Errorf("MatchesAll = %v, want %v", got, tc.want)
 			}
@@ -900,7 +930,7 @@ func TestDenyBeforeAllow(t *testing.T) {
 		name       string
 		cmd        string
 		wantDeny   bool // MatchesAny(deny) — checked first by server
-		wantAllow  bool // MatchesAll(allow) — checked second, skipped if denied
+		wantAllow  bool // validatedMatchesAll(t, allow) — checked second, skipped if denied
 		wantResult string
 	}{
 		{
@@ -938,13 +968,13 @@ func TestDenyBeforeAllow(t *testing.T) {
 			input := bashInput(tc.cmd)
 
 			denied := MatchesAny("Bash", input, deny)
-			allowed := MatchesAll("Bash", input, allow)
+			allowed := validatedMatchesAll(t, "Bash", input, allow).Matched
 
 			if denied != tc.wantDeny {
 				t.Errorf("MatchesAny(deny) = %v, want %v", denied, tc.wantDeny)
 			}
 			if allowed != tc.wantAllow {
-				t.Errorf("MatchesAll(allow) = %v, want %v", allowed, tc.wantAllow)
+				t.Errorf("validatedMatchesAll(t, allow) = %v, want %v", allowed, tc.wantAllow)
 			}
 
 			// Replicate the server's decision logic (server.go:105-111):
@@ -1038,8 +1068,8 @@ func TestMatchesAll_EnvAssignments(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := MatchesAll("Bash", bashInput(tc.cmd), tc.rules); got != tc.want {
-				t.Errorf("MatchesAll(%q) = %v, want %v", tc.cmd, got, tc.want)
+			if got := validatedMatchesAll(t, "Bash", bashInput(tc.cmd), tc.rules).Matched; got != tc.want {
+				t.Errorf("validatedMatchesAll(t, %q) = %v, want %v", tc.cmd, got, tc.want)
 			}
 		})
 	}
@@ -1086,7 +1116,7 @@ func TestMatchesAll_MonitorAllowedByBashRules(t *testing.T) {
 		{Tool: "Bash", Pattern: "grep:*"},
 	}
 
-	got := MatchesAll("Monitor", monitorInput("tail -f app.log | grep --line-buffered ERROR"), rules)
+	got := validatedMatchesAll(t, "Monitor", monitorInput("tail -f app.log | grep --line-buffered ERROR"), rules).Matched
 	if !got {
 		t.Error("Monitor command composed of allowed Bash commands should match")
 	}
@@ -1095,7 +1125,7 @@ func TestMatchesAll_MonitorAllowedByBashRules(t *testing.T) {
 func TestMatchesAll_MonitorPartial(t *testing.T) {
 	rules := []Rule{{Tool: "Bash", Pattern: "tail:*"}}
 
-	got := MatchesAll("Monitor", monitorInput("tail -f app.log | grep ERROR"), rules)
+	got := validatedMatchesAll(t, "Monitor", monitorInput("tail -f app.log | grep ERROR"), rules).Matched
 	if got {
 		t.Error("Monitor command with unmatched grep should NOT match")
 	}
@@ -1112,7 +1142,7 @@ func TestMatchesAll_MonitorLoopWithSubshell(t *testing.T) {
 	}
 
 	cmd := "for i in $(seq 1 90); do\n  ip=$(/Users/anish/cb/claude_utils/clu get-last-notebook -no-open 2>&1 | grep -iE 'Jupyter')\n  if [ -n \"$ip\" ]; then echo \"$ip\"; break; fi\n  sleep 10\ndone"
-	got := MatchesAll("Monitor", monitorInput(cmd), rules)
+	got := validatedMatchesAll(t, "Monitor", monitorInput(cmd), rules).Matched
 	if !got {
 		t.Error("Monitor polling loop of allowed commands should match")
 	}
@@ -1137,7 +1167,7 @@ func TestMatchesAll_MonitorWebSocketVariant(t *testing.T) {
 		{Tool: "Monitor", Pattern: "*"},
 	}
 
-	if MatchesAll("Monitor", b, rules) {
+	if validatedMatchesAll(t, "Monitor", b, rules).Matched {
 		t.Error("ws Monitor has no command to inspect; must fall through to review")
 	}
 }
@@ -1145,7 +1175,7 @@ func TestMatchesAll_MonitorWebSocketVariant(t *testing.T) {
 func TestMatchesAll_BashNotGovernedByMonitorRules(t *testing.T) {
 	rules := []Rule{{Tool: "Monitor", Pattern: "rm:*"}}
 
-	if MatchesAll("Bash", bashInput("rm -rf /tmp/x"), rules) {
+	if validatedMatchesAll(t, "Bash", bashInput("rm -rf /tmp/x"), rules).Matched {
 		t.Error("Monitor rules must not govern Bash commands")
 	}
 }
