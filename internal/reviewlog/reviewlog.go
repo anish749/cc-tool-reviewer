@@ -17,11 +17,12 @@ const (
 
 // Entry is a single JSONL record written to the review log.
 type Entry struct {
-	Timestamp string          `json:"ts"`
-	ToolName  string          `json:"tool"`
-	ToolInput json.RawMessage `json:"input"`
-	Decision  string          `json:"decision"`
-	Reason    string          `json:"reason"`
+	Timestamp         string          `json:"ts"`
+	ToolName          string          `json:"tool"`
+	ToolInput         json.RawMessage `json:"input"`
+	UnmatchedCommands []string        `json:"unmatched_commands"`
+	Decision          string          `json:"decision"`
+	Reason            string          `json:"reason"`
 }
 
 // Logger writes JSONL review log entries to a rotating file.
@@ -47,16 +48,17 @@ func New(path string) *Logger {
 }
 
 // Log appends a review entry. Safe for concurrent use. No-op on nil receiver.
-func (l *Logger) Log(toolName string, toolInput json.RawMessage, decision, reason string) {
+func (l *Logger) Log(toolName string, toolInput json.RawMessage, unmatchedCommands []string, decision, reason string) {
 	if l == nil {
 		return
 	}
 	entry := Entry{
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		ToolName:  toolName,
-		ToolInput: toolInput,
-		Decision:  decision,
-		Reason:    reason,
+		Timestamp:         time.Now().UTC().Format(time.RFC3339),
+		ToolName:          toolName,
+		ToolInput:         toolInput,
+		UnmatchedCommands: unmatchedCommands,
+		Decision:          decision,
+		Reason:            reason,
 	}
 	line, err := json.Marshal(entry)
 	if err != nil {

@@ -121,21 +121,26 @@ func expandTilde(path string) string {
 	return path
 }
 
-// MatchesAll returns true if every command in the tool call matches at
-// least one rule. For Bash, the command is parsed into an AST and every
-// sub-command (including inside pipes, &&, ||, and subshells) must match.
-// Use for allow lists.
-func MatchesAll(toolName string, toolInput json.RawMessage, rules []Rule) bool {
+type MatchAllResult struct {
+	Matched           bool
+	UnmatchedCommands []string
+}
+
+// MatchesAll checks whether every command is covered by at least one rule and
+// returns the commands that are not. Use for allow lists.
+func MatchesAll(toolName string, toolInput json.RawMessage, rules []Rule) MatchAllResult {
 	cmds := toolCommands(toolName, toolInput)
-	if len(cmds) == 0 {
-		return false
+	result := MatchAllResult{
+		Matched:           len(cmds) > 0,
+		UnmatchedCommands: make([]string, 0),
 	}
 	for _, cmd := range cmds {
 		if !matchesRule(toolName, cmd, rules) {
-			return false
+			result.Matched = false
+			result.UnmatchedCommands = append(result.UnmatchedCommands, cmd.Text)
 		}
 	}
-	return true
+	return result
 }
 
 // MatchesAny returns true if at least one command in the tool call matches

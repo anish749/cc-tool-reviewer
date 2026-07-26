@@ -121,7 +121,8 @@ func (s *Server) handle(conn net.Conn) {
 		s.writeResponse(conn, "deny", "matched deny rule", "")
 		return
 	}
-	if MatchesAll(input.ToolName, input.ToolInput, allow) {
+	allowMatch := MatchesAll(input.ToolName, input.ToolInput, allow)
+	if allowMatch.Matched {
 		logLocalMatch(input, "allow")
 		s.writeAllow(conn, "matched allow rule")
 		return
@@ -143,7 +144,7 @@ func (s *Server) handle(conn net.Conn) {
 	}
 
 	slog.Info("reviewed", "tool", input.ToolName, "decision", decision.Decision, "method", "llm-reviewed", "reason", decision.Reason, "input", string(input.ToolInput))
-	s.reviewLog.Log(input.ToolName, input.ToolInput, decision.Decision, decision.Reason)
+	s.reviewLog.Log(input.ToolName, input.ToolInput, allowMatch.UnmatchedCommands, decision.Decision, decision.Reason)
 
 	// If AI says "allow", pass it through
 	if decision.Decision == "allow" {
