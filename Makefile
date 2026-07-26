@@ -12,11 +12,13 @@ ifeq ($(shell uname -s),Darwin)
 	cp approval-dialog/.build/release/approval-dialog bin/approval-dialog
 endif
 
+# install(1) writes a temp file and renames it into place, so a running daemon
+# keeps its own inode. cp overwrites in place, which macOS SIGKILLs on exec.
 install: build
-	mkdir -p $(INSTALL_DIR)
-	cp bin/cc-tool-reviewer $(INSTALL_DIR)/cc-tool-reviewer
+	install -d $(INSTALL_DIR)
+	install -m 755 bin/cc-tool-reviewer $(INSTALL_DIR)/cc-tool-reviewer
 ifeq ($(shell uname -s),Darwin)
-	cp bin/approval-dialog $(INSTALL_DIR)/approval-dialog
+	install -m 755 bin/approval-dialog $(INSTALL_DIR)/approval-dialog
 endif
 
 clean:
