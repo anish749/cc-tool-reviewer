@@ -23,6 +23,11 @@ func TestCommand(t *testing.T) {
 		{"only flags no subcommand", []string{"git", "-C", "/foo", "--no-pager"}, "git"},
 		{"preserves subcommand args", []string{"git", "-C", "/foo", "log", "--all", "--since=2026-01-01", "--oneline"}, "git log --all --since=2026-01-01 --oneline"},
 		{"empty args", []string{}, ""},
+		{"npx strip --no-install", []string{"npx", "--no-install", "tsc", "--noEmit", "-p", "."}, "npx tsc --noEmit -p ."},
+		{"npx strip -y", []string{"npx", "-y", "prettier", "--write", "a.ts"}, "npx prettier --write a.ts"},
+		{"npx no flags", []string{"npx", "tsc"}, "npx tsc"},
+		{"npx keeps --package", []string{"npx", "--package", "evil", "tsc"}, "npx --package evil tsc"},
+		{"bare npx", []string{"npx"}, "npx"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
