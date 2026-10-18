@@ -1179,3 +1179,26 @@ func TestMatchesAll_BashNotGovernedByMonitorRules(t *testing.T) {
 		t.Error("Monitor rules must not govern Bash commands")
 	}
 }
+
+func TestMatchesAll_NpxGlobalFlags(t *testing.T) {
+	rules := []Rule{{Tool: "Bash", Pattern: "npx tsc:*"}}
+
+	tests := []struct {
+		command string
+		want    bool
+	}{
+		{"npx tsc --noEmit", true},
+		{"npx --no-install tsc --noEmit -p .", true},
+		{"npx -y tsc --noEmit", true},
+		{"npx --package evil tsc", false},
+		{"npx --no-install prettier --write a.ts", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.command, func(t *testing.T) {
+			got := validatedMatchesAll(t, "Bash", bashInput(tc.command), rules)
+			if got.Matched != tc.want {
+				t.Errorf("Matched = %v, want %v (unmatched=%v)", got.Matched, tc.want, got.UnmatchedCommands)
+			}
+		})
+	}
+}

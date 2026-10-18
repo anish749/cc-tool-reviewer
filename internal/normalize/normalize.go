@@ -27,8 +27,16 @@ var gitNormalizer = CommandNormalizer{
 	FlagPrefixes: []string{"--git-dir=", "--work-tree=", "--namespace=", "--super-prefix=", "--config-env="},
 }
 
+// Only flags that don't change which package runs. -p/--package and
+// --call are deliberately excluded so they never normalize into a match.
+var npxNormalizer = CommandNormalizer{
+	Command:    "npx",
+	FlagsNoArg: []string{"--no-install", "--yes", "-y"},
+}
+
 var normalizers = map[string]*CommandNormalizer{
 	"git": &gitNormalizer,
+	"npx": &npxNormalizer,
 }
 
 // Command normalizes a command given its pre-parsed arguments from the
