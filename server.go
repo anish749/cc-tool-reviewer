@@ -91,6 +91,11 @@ func (s *Server) handle(conn net.Conn) {
 	// Clear deadline so AI review and dialog can take as long as needed.
 	conn.SetReadDeadline(time.Time{})
 
+	// Empty payload: a liveness probe (daemon start/status), not a hook call.
+	if len(data) == 0 {
+		return
+	}
+
 	var input HookInput
 	if err := json.Unmarshal(data, &input); err != nil {
 		slog.Error("json parse error", "err", err)
